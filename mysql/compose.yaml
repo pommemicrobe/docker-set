@@ -1,0 +1,18 @@
+services:
+  mysql:
+    image: mysql:9.4.0
+    container_name: mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - ./data:/var/lib/mysql
+    networks:
+      - internal
+      - web
+
+networks:
+  internal:
+    driver: bridge
+  web:
+    external: true

@@ -1,0 +1,7 @@
+# mysql
+mysql/data/*
+!mysql/data/.gitkeep
+
+# sites
+sites/*
+!sites/.gitkeep
