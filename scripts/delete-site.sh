@@ -21,6 +21,6 @@ sudo docker compose down
 
 # Delete the directory
 cd ..
-rm -rf "$SITE_DIR"
+rm -rf "$SITE_NAME"
 
 echo "🗑️ Site '$SITE_NAME' has been deleted."

@@ -1,10 +1,18 @@
 # 📦 Installation
 
+## Network
+
+1. Start by creating `web` network:
+
+   ```bash
+   sudo docker network create web
+   ```
+
 ## 🧭 Traefik
 
 The **Traefik** container acts as a reverse proxy and handles the routing for the different sites in the project.
 
-1. Start by going to traefik repository
+1. Start by going to traefik repository:
 
    ```bash
    cd traefik
@@ -72,13 +80,14 @@ Creates a new site from a predefined template and starts its container.
 **Usage:**
 
 ```bash
-./add-site.sh my-site
+./scripts/add-site.sh my-site my-site.com php-only
 ```
 
 This will:
 
 * Copy the contents of `templates/site-template` to `sites/my-site`.
 * Replace any `{{SITE_NAME}}` placeholder inside files (if used).
+* Replace any `{{SITE_URL}}` placeholder inside files (if used).
 * Launch the container for the new site.
 
 ---
@@ -90,7 +99,7 @@ Stops and removes a site and its associated container.
 **Usage:**
 
 ```bash
-./delete-site.sh my-site
+./scripts/delete-site.sh my-site
 ```
 
 This will:

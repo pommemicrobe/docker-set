@@ -1,0 +1,11 @@
+services:
+  SERVICE_NAME:
+    build: .
+    container_name: ${SITE_NAME}
+    restart: always
+    volumes:
+      - ./app:/app/public
+    ports:
+      - "80:80"
+      - "443:443"
+

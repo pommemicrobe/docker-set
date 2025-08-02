@@ -1,3 +1,9 @@
+# traefik
+traefik/*
+!traefik/compose.yaml
+!traefik/acme.json.dist
+!traefik/traefik.yaml.dist
+
 # mysql
 mysql/data/*
 !mysql/data/.gitkeep
