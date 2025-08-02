@@ -85,9 +85,7 @@ Creates a new site from a predefined template and starts its container.
 
 This will:
 
-* Copy the contents of `templates/site-template` to `sites/my-site`.
-* Replace any `{{SITE_NAME}}` placeholder inside files (if used).
-* Replace any `{{SITE_URL}}` placeholder inside files (if used).
+* Create `my-site`in `sites/my-site`
 * Launch the container for the new site.
 
 ---
