@@ -1,7 +1,7 @@
 FROM dunglas/frankenphp
 
 # Install Node.js and npm
-RUN apt-get update && apt-get install -y git nodejs npm
+RUN apt-get update && apt-get install -y git nodejs npm zip unzip
 
 # Install PHP extensions
 RUN install-php-extensions \
@@ -19,4 +19,4 @@ RUN php -r "unlink('composer-setup.php');"
 RUN mv composer.phar /usr/local/bin/composer
 
 # Set the working directory inside the container
-WORKDIR /app
+WORKDIR /app/public
