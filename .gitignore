@@ -11,3 +11,6 @@ mysql/data/*
 # sites
 sites/*
 !sites/.gitkeep
+
+CLAUDE.md
+.claude

@@ -1,0 +1,11 @@
+services:
+  SERVICE_NAME:
+    build: .
+    container_name: ${SITE_NAME}
+    restart: always
+    volumes:
+      - ./app:/app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development

@@ -109,4 +109,61 @@ This will:
 
 # 🧩 Templates
 
-*To be completed — Provide configuration templates or example project setups.*
+This project provides ready-to-use templates for different technology stacks. Each template comes in two variants:
+
+## 📋 Available Templates
+
+### 🐘 PHP Templates
+- **`php-only`** - Basic PHP container with direct port exposure (80, 443)
+- **`php-traefik`** - PHP container with Traefik integration for SSL and domain routing
+
+### 🟢 NodeJS Templates  
+- **`nodejs-only`** - NodeJS container with direct port exposure (3000)
+- **`nodejs-traefik`** - NodeJS container with Traefik integration for SSL and domain routing
+
+## 🚀 Template Features
+
+### PHP Templates
+- **FrankenPHP** base image for modern PHP applications
+- **Extensions**: PDO MySQL, GD, Intl, Zip, OPcache, MySQLi
+- **Tools**: Composer, Node.js, npm
+- Perfect for **WordPress**, **Laravel**, and custom PHP projects
+
+### NodeJS Templates
+- **Node.js 22 LTS** for stability and performance
+- **PM2** for automatic process restart and monitoring
+- **Watch mode** for development (auto-restart on file changes)
+- Perfect for **NextJS**, **AdonisJS**, **Express**, and other NodeJS frameworks
+
+## 📖 Usage Examples
+
+```bash
+# Create a WordPress site with SSL
+./scripts/add-site.sh my-wordpress my-wordpress.local php-traefik
+
+# Create a NextJS project with SSL  
+./scripts/add-site.sh my-nextjs my-nextjs.local nodejs-traefik
+
+# Create a development PHP site (direct access)
+./scripts/add-site.sh my-php-dev my-php-dev.local php-only
+
+# Create a development NodeJS site (direct access)
+./scripts/add-site.sh my-node-dev my-node-dev.local nodejs-only
+```
+
+## 🔧 Template Structure
+
+Each template includes:
+- **`Dockerfile`** - Container configuration
+- **`compose.yaml`** - Docker Compose setup with environment variables
+- **`.env.dist`** - Environment template
+- **`app/`** - Directory for your application code
+
+## 📝 Development Workflow
+
+1. **Create site**: Use `add-site.sh` with desired template
+2. **Add code**: Place your application in `sites/<site-name>/app/`
+3. **Configure**: Edit `.env` file if needed
+4. **Access**: 
+   - Traefik templates: `https://your-domain.local`
+   - Only templates: `http://localhost:3000` (NodeJS) or `http://localhost:80` (PHP)

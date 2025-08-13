@@ -9,7 +9,8 @@ RUN install-php-extensions \
 	gd \
 	intl \
 	zip \
-	opcache
+	opcache \
+	mysqli
 
 # Install Composer
 RUN php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"

@@ -1,0 +1,21 @@
+services:
+  SERVICE_NAME:
+    build: .
+    container_name: ${SITE_NAME}
+    restart: always
+    volumes:
+      - ./app:/app
+    environment:
+      - NODE_ENV=development
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.${SITE_NAME}.rule=Host(`${SITE_URL}`)"
+      - "traefik.http.routers.${SITE_NAME}.entrypoints=websecure"
+      - "traefik.http.routers.${SITE_NAME}.tls.certresolver=le"
+      - "traefik.http.services.${SITE_NAME}.loadbalancer.server.port=3000"
+    networks:
+      - web
+
+networks:
+  web:
+    external: true
