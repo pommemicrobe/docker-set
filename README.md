@@ -80,7 +80,7 @@ Creates a new site from a predefined template and starts its container.
 **Usage:**
 
 ```bash
-./scripts/add-site.sh my-site my-site.com php-only
+./scripts/add-site.sh my-site my-site.com php-standalone
 ```
 
 This will:
@@ -107,6 +107,32 @@ This will:
 
 ---
 
+### 📦 `add-framework.sh`
+
+Installs a framework or CMS into an existing site's app directory.
+
+**Usage:**
+
+```bash
+./scripts/add-framework.sh my-site laravel
+```
+
+This will:
+
+* Copy the framework files from `template-frameworks/laravel/` to `sites/my-site/app/`
+* Replace placeholder variables (`SITE_NAME`, `SITE_URL`) in framework files
+* Display installation instructions and next steps
+
+**Available frameworks:**
+
+```bash
+./scripts/add-framework.sh
+```
+
+Shows available frameworks and existing sites.
+
+---
+
 # 🧩 Templates
 
 This project provides ready-to-use templates for different technology stacks. Each template comes in two variants:
@@ -114,11 +140,11 @@ This project provides ready-to-use templates for different technology stacks. Ea
 ## 📋 Available Templates
 
 ### 🐘 PHP Templates
-- **`php-only`** - Basic PHP container with direct port exposure (80, 443)
+- **`php-standalone`** - Basic PHP container with direct port exposure (80, 443)
 - **`php-traefik`** - PHP container with Traefik integration for SSL and domain routing
 
 ### 🟢 NodeJS Templates  
-- **`nodejs-only`** - NodeJS container with direct port exposure (3000)
+- **`nodejs-standalone`** - NodeJS container with direct port exposure (3000)
 - **`nodejs-traefik`** - NodeJS container with Traefik integration for SSL and domain routing
 
 ## 🚀 Template Features
@@ -145,10 +171,10 @@ This project provides ready-to-use templates for different technology stacks. Ea
 ./scripts/add-site.sh my-nextjs my-nextjs.local nodejs-traefik
 
 # Create a development PHP site (direct access)
-./scripts/add-site.sh my-php-dev my-php-dev.local php-only
+./scripts/add-site.sh my-php-dev my-php-dev.local php-standalone
 
 # Create a development NodeJS site (direct access)
-./scripts/add-site.sh my-node-dev my-node-dev.local nodejs-only
+./scripts/add-site.sh my-node-dev my-node-dev.local nodejs-standalone
 ```
 
 ## 🔧 Template Structure
@@ -161,9 +187,27 @@ Each template includes:
 
 ## 📝 Development Workflow
 
+### Method 1: Manual Setup
 1. **Create site**: Use `add-site.sh` with desired template
 2. **Add code**: Place your application in `sites/<site-name>/app/`
 3. **Configure**: Edit `.env` file if needed
-4. **Access**: 
-   - Traefik templates: `https://your-domain.local`
-   - Only templates: `http://localhost:3000` (NodeJS) or `http://localhost:80` (PHP)
+
+### Method 2: Framework Installation
+1. **Create site**: Use `add-site.sh` with desired template  
+2. **Install framework**: Use `add-framework.sh` to install a pre-configured framework
+3. **Configure**: Edit framework-specific settings if needed
+
+**Access your sites:**
+- Traefik templates: `https://your-domain.local`
+- Standalone templates: `http://localhost:3000` (NodeJS) or `http://localhost:80` (PHP)
+
+## 🚀 Framework Templates
+
+Framework templates provide ready-to-use configurations for popular frameworks and CMS:
+
+- **Laravel**: Complete Laravel setup with optimized configuration
+- **WordPress**: Pre-configured WordPress installation 
+- **NextJS**: NextJS project template with best practices
+- **AdonisJS**: AdonisJS framework setup
+
+**Create frameworks:** Add new frameworks in `template-frameworks/` directory with placeholder variables for customization.
