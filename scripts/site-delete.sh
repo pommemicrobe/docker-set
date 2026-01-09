@@ -1,28 +1,28 @@
 #!/usr/bin/env bash
 #
-# site-delete.sh - Supprimer un site existant
+# site-delete.sh - Delete an existing site
 #
 # Usage: ./scripts/site-delete.sh <site-name> [--force]
 #
 
-# Charger la bibliothèque commune
+# Load common library
 source "$(dirname "$0")/../lib/common.sh"
 
 # =============================================================================
-# AIDE
+# HELP
 # =============================================================================
 
 show_help() {
     echo "Usage: $0 <site-name> [options]"
     echo ""
     echo "Arguments:"
-    echo "  site-name     Nom du site à supprimer"
+    echo "  site-name     Name of the site to delete"
     echo ""
     echo "Options:"
-    echo "  --force, -f   Supprimer sans demander confirmation"
-    echo "  --help, -h    Afficher cette aide"
+    echo "  --force, -f   Delete without asking for confirmation"
+    echo "  --help, -h    Show this help"
     echo ""
-    echo "Sites existants:"
+    echo "Existing sites:"
     list_sites
 }
 
@@ -32,7 +32,7 @@ show_help() {
 
 FORCE=false
 
-# Parser les arguments
+# Parse arguments
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -51,12 +51,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Restaurer les arguments positionnels
+# Restore positional arguments
 set -- "${POSITIONAL[@]}"
 
-# Vérifier le nombre d'arguments
+# Check argument count
 if [[ $# -lt 1 ]]; then
-    log_error "Argument manquant: nom du site"
+    log_error "Missing argument: site name"
     echo ""
     show_help
     exit 1
@@ -69,14 +69,14 @@ SITE_DIR="$SITES_DIR/$SITE_NAME"
 # VALIDATION
 # =============================================================================
 
-# Valider le nom (protection contre injection)
+# Validate name (protection against injection)
 if ! validate_site_name "$SITE_NAME"; then
     exit 1
 fi
 
-# Vérifier que le site existe
+# Check that site exists
 if [[ ! -d "$SITE_DIR" ]]; then
-    log_error "Le site '$SITE_NAME' n'existe pas"
+    log_error "Site '$SITE_NAME' does not exist"
     echo ""
     list_sites
     exit 1
@@ -86,46 +86,46 @@ fi
 # CONFIRMATION
 # =============================================================================
 
-print_header "Suppression du site '$SITE_NAME'"
+print_header "Deleting site '$SITE_NAME'"
 
-# Afficher les infos du site
-log_info "Emplacement: $SITE_DIR"
+# Display site info
+log_info "Location: $SITE_DIR"
 
-# Vérifier si le container tourne
+# Check if container is running
 if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${SITE_NAME}$"; then
-    log_warn "Le container '$SITE_NAME' est en cours d'exécution"
+    log_warn "Container '$SITE_NAME' is currently running"
 fi
 
-# Lister les fichiers
-log_info "Contenu du site:"
+# List files
+log_info "Site contents:"
 ls -la "$SITE_DIR" 2>/dev/null | head -10 | sed 's/^/  /'
 
 echo ""
 
-# Demander confirmation sauf si --force
+# Ask for confirmation unless --force
 if [[ "$FORCE" != true ]]; then
-    log_warn "Cette action est IRRÉVERSIBLE"
-    if ! confirm "Voulez-vous vraiment supprimer '$SITE_NAME' ?"; then
-        log_info "Opération annulée"
+    log_warn "This action is IRREVERSIBLE"
+    if ! confirm "Are you sure you want to delete '$SITE_NAME'?"; then
+        log_info "Operation cancelled"
         exit 0
     fi
 fi
 
 # =============================================================================
-# SUPPRESSION
+# DELETION
 # =============================================================================
 
-# Arrêter le container si nécessaire
+# Stop container if needed
 if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^${SITE_NAME}$"; then
-    log_info "Arrêt et suppression du container..."
+    log_info "Stopping and removing container..."
     (cd "$SITE_DIR" && docker compose down --volumes --remove-orphans 2>/dev/null) || true
-    log_ok "Container arrêté"
+    log_ok "Container stopped"
 fi
 
-# Supprimer le dossier
-log_info "Suppression des fichiers..."
+# Delete directory
+log_info "Deleting files..."
 rm -rf "$SITE_DIR"
-log_ok "Dossier supprimé"
+log_ok "Directory deleted"
 
 echo ""
-log_ok "Site '$SITE_NAME' supprimé avec succès"
+log_ok "Site '$SITE_NAME' deleted successfully"

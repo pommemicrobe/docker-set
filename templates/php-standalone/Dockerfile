@@ -26,8 +26,8 @@ RUN install-php-extensions \
     imagick \
     gettext
 
-# Install Composer
-COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
+# Install Composer (latest version)
+COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
 
 # Install Node.js 24 LTS
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \

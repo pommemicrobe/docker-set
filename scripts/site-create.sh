@@ -419,16 +419,26 @@ if [[ -n "$FRAMEWORK_NAME" ]]; then
     log_info "Installing framework '$FRAMEWORK_NAME'..."
     APP_DIR="$NEW_SITE_DIR/app"
     mkdir -p "$APP_DIR"
-    cp -r "$FRAMEWORKS_DIR/$FRAMEWORK_NAME"/* "$APP_DIR/"
 
-    # Replace placeholders in framework files
-    if [[ -f "$ENV_FILE" ]]; then
-        find "$APP_DIR" -type f \( -name "*.php" -o -name "*.js" -o -name "*.json" -o -name "*.env*" -o -name "*.yaml" -o -name "*.yml" \) 2>/dev/null | while read -r file; do
+    FRAMEWORK_DIR="$FRAMEWORKS_DIR/$FRAMEWORK_NAME"
+    INSTALL_SCRIPT="$FRAMEWORK_DIR/install.sh"
+
+    # Check for install.sh script
+    if [[ -x "$INSTALL_SCRIPT" ]]; then
+        # Execute framework's install script
+        "$INSTALL_SCRIPT" "$APP_DIR" "$SITE_NAME" "$SITE_URL"
+    else
+        # Fallback: simple file copy
+        cp -r "$FRAMEWORK_DIR"/* "$APP_DIR/"
+
+        # Replace placeholders in framework files
+        find "$APP_DIR" -type f \( -name "*.php" -o -name "*.js" -o -name "*.json" -o -name "*.env*" -o -name "*.yaml" -o -name "*.yml" -o -name ".htaccess" \) 2>/dev/null | while read -r file; do
             if grep -q "SITE_NAME\|SITE_URL" "$file" 2>/dev/null; then
                 sed_inplace "s|SITE_NAME|$SITE_NAME|g; s|SITE_URL|$SITE_URL|g" "$file"
             fi
         done
     fi
+
     log_ok "Framework installed"
 fi
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# common.sh - Bibliothèque partagée pour les scripts docker-set
+# common.sh - Shared library for docker-set scripts
 #
 # Usage: source "$(dirname "$0")/../lib/common.sh"
 #
@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # =============================================================================
-# COULEURS
+# COLORS
 # =============================================================================
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -17,11 +17,11 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # =============================================================================
-# CHEMINS
+# PATHS
 # =============================================================================
-# Déterminer la racine du projet
+# Determine project root
 if [[ -n "${PROJECT_ROOT:-}" ]]; then
-    : # Déjà défini
+    : # Already defined
 elif [[ -n "${BASH_SOURCE[0]:-}" ]]; then
     _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     PROJECT_ROOT="$(dirname "$_LIB_DIR")"
@@ -44,10 +44,10 @@ log_warn()  { echo -e "${YELLOW}!${NC}  $1"; }
 log_error() { echo -e "${RED}✗${NC}  $1" >&2; }
 
 # =============================================================================
-# UTILITAIRES
+# UTILITIES
 # =============================================================================
 
-# Sed cross-platform (macOS vs Linux)
+# Cross-platform sed in-place (macOS vs Linux)
 sed_inplace() {
     if [[ "$OSTYPE" == "darwin"* ]]; then
         sed -i '' "$@"
@@ -56,10 +56,9 @@ sed_inplace() {
     fi
 }
 
-# Génération de mot de passe aléatoire
+# Generate random password using /dev/urandom
 generate_password() {
     local length="${1:-32}"
-    # Utilise /dev/urandom avec base64, supprime les caractères spéciaux
     LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "$length"
 }
 
@@ -67,54 +66,54 @@ generate_password() {
 # VALIDATION
 # =============================================================================
 
-# Validation nom de site (alphanum + tirets, commence/finit par alphanum)
+# Validate site name (alphanumeric + hyphens, must start/end with alphanumeric)
 validate_site_name() {
     local name="$1"
 
-    # Vérification caractères autorisés
+    # Check allowed characters
     if [[ ! "$name" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]]; then
-        log_error "Nom invalide: '$name'"
-        log_error "Utilisez uniquement: lettres minuscules, chiffres, tirets"
-        log_error "Doit commencer et finir par une lettre ou un chiffre"
+        log_error "Invalid name: '$name'"
+        log_error "Use only: lowercase letters, numbers, hyphens"
+        log_error "Must start and end with a letter or number"
         return 1
     fi
 
-    # Longueur max 63 (limite DNS/Docker)
+    # Max length 63 (DNS/Docker limit)
     if [[ ${#name} -gt 63 ]]; then
-        log_error "Nom trop long: ${#name} caractères (max 63)"
+        log_error "Name too long: ${#name} characters (max 63)"
         return 1
     fi
 
-    # Longueur min 2
+    # Min length 2
     if [[ ${#name} -lt 2 ]]; then
-        log_error "Nom trop court: ${#name} caractère (min 2)"
+        log_error "Name too short: ${#name} character (min 2)"
         return 1
     fi
 
     return 0
 }
 
-# Validation URL/domaine
+# Validate URL/domain
 validate_url() {
     local url="$1"
 
-    # Accepte: domain.tld, sub.domain.tld, localhost, localhost:port
+    # Accepts: domain.tld, sub.domain.tld, localhost, localhost:port
     if [[ ! "$url" =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?(:[0-9]+)?$ ]]; then
-        log_error "URL invalide: '$url'"
-        log_error "Format attendu: domain.com, sub.domain.com ou localhost:3000"
+        log_error "Invalid URL: '$url'"
+        log_error "Expected format: domain.com, sub.domain.com or localhost:3000"
         return 1
     fi
 
     return 0
 }
 
-# Validation nom de template
+# Validate template name
 validate_template_name() {
     local name="$1"
 
     if [[ ! -d "$TEMPLATES_DIR/$name" ]]; then
-        log_error "Template inexistant: '$name'"
-        log_info "Templates disponibles:"
+        log_error "Template not found: '$name'"
+        log_info "Available templates:"
         ls -1 "$TEMPLATES_DIR" 2>/dev/null | sed 's/^/  - /'
         return 1
     fi
@@ -123,13 +122,13 @@ validate_template_name() {
 }
 
 # =============================================================================
-# INTERACTIONS UTILISATEUR
+# USER INTERACTIONS
 # =============================================================================
 
-# Confirmation interactive
+# Interactive confirmation prompt
 confirm() {
-    local message="${1:-Continuer ?}"
-    local default="${2:-n}"  # n = non par défaut
+    local message="${1:-Continue?}"
+    local default="${2:-n}"  # n = no by default
 
     local prompt
     if [[ "$default" == "y" ]]; then
@@ -148,7 +147,7 @@ confirm() {
     fi
 }
 
-# Demande une valeur à l'utilisateur
+# Prompt user for a value
 prompt_value() {
     local message="$1"
     local default="${2:-}"
@@ -164,76 +163,76 @@ prompt_value() {
 }
 
 # =============================================================================
-# VÉRIFICATIONS DOCKER
+# DOCKER CHECKS
 # =============================================================================
 
-# Vérifie que Docker est installé et accessible
+# Check that Docker is installed and accessible
 require_docker() {
     if ! command -v docker &> /dev/null; then
-        log_error "Docker n'est pas installé"
-        log_info "Installez Docker: https://docs.docker.com/get-docker/"
+        log_error "Docker is not installed"
+        log_info "Install Docker: https://docs.docker.com/get-docker/"
         exit 1
     fi
 
     if ! docker info &> /dev/null; then
-        log_error "Docker daemon n'est pas accessible"
-        log_info "Essayez avec sudo ou vérifiez que Docker est démarré"
+        log_error "Docker daemon is not accessible"
+        log_info "Try with sudo or check that Docker is running"
         exit 1
     fi
 }
 
-# Vérifie que le réseau 'web' existe
+# Check that the 'web' network exists
 require_web_network() {
     if ! docker network ls --format '{{.Name}}' | grep -q "^web$"; then
-        log_error "Le réseau Docker 'web' n'existe pas"
-        log_info "Créez-le avec: sudo docker network create web"
+        log_error "Docker network 'web' does not exist"
+        log_info "Create it with: sudo docker network create web"
         exit 1
     fi
 }
 
-# Crée le réseau 'web' s'il n'existe pas
+# Create the 'web' network if it doesn't exist
 ensure_web_network() {
     if ! docker network ls --format '{{.Name}}' | grep -q "^web$"; then
-        log_info "Création du réseau Docker 'web'..."
+        log_info "Creating Docker network 'web'..."
         docker network create web
-        log_ok "Réseau 'web' créé"
+        log_ok "Network 'web' created"
     fi
 }
 
 # =============================================================================
-# GESTION DES ERREURS
+# ERROR HANDLING
 # =============================================================================
 
-# Variable pour stocker le dossier à nettoyer en cas d'erreur
+# Variable to store the directory to clean up on error
 _CLEANUP_DIR=""
 
-# Fonction de nettoyage appelée en cas d'erreur
+# Cleanup function called on error
 _cleanup_on_error() {
     local exit_code=$?
     if [[ $exit_code -ne 0 && -n "$_CLEANUP_DIR" && -d "$_CLEANUP_DIR" ]]; then
-        log_warn "Nettoyage suite à erreur..."
+        log_warn "Cleaning up after error..."
         rm -rf "$_CLEANUP_DIR"
     fi
     exit $exit_code
 }
 
-# Active le nettoyage automatique pour un dossier
+# Enable automatic cleanup for a directory
 set_cleanup_dir() {
     _CLEANUP_DIR="$1"
     trap _cleanup_on_error EXIT
 }
 
-# Désactive le nettoyage (à appeler après succès)
+# Disable cleanup (call after success)
 clear_cleanup_dir() {
     _CLEANUP_DIR=""
     trap - EXIT
 }
 
 # =============================================================================
-# AFFICHAGE
+# DISPLAY
 # =============================================================================
 
-# Affiche un titre de section
+# Print a section header
 print_header() {
     local title="$1"
     echo ""
@@ -241,9 +240,9 @@ print_header() {
     echo ""
 }
 
-# Affiche la liste des templates disponibles
+# List available templates
 list_templates() {
-    log_info "Templates disponibles:"
+    log_info "Available templates:"
     for template in "$TEMPLATES_DIR"/*/; do
         if [[ -d "$template" ]]; then
             echo "  - $(basename "$template")"
@@ -251,9 +250,9 @@ list_templates() {
     done
 }
 
-# Affiche la liste des sites existants
+# List existing sites
 list_sites() {
-    log_info "Sites existants:"
+    log_info "Existing sites:"
     local count=0
     for site in "$SITES_DIR"/*/; do
         if [[ -d "$site" && "$(basename "$site")" != ".gitkeep" ]]; then
@@ -262,6 +261,6 @@ list_sites() {
         fi
     done
     if [[ $count -eq 0 ]]; then
-        echo "  (aucun site)"
+        echo "  (no sites)"
     fi
 }
