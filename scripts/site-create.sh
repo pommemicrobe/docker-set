@@ -304,7 +304,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Restore positional arguments
-set -- "${POSITIONAL[@]}"
+set -- "${POSITIONAL[@]+"${POSITIONAL[@]}"}"
 
 # Decide mode: interactive or direct
 if [[ $# -lt 3 ]]; then
