@@ -110,13 +110,21 @@ start_infrastructure() {
 
     # Start Traefik
     log_info "Starting Traefik..."
-    (cd "$CONFIG_DIR/traefik" && docker compose up -d)
-    log_ok "Traefik started"
+    if (cd "$CONFIG_DIR/traefik" && docker compose up -d); then
+        log_ok "Traefik started"
+    else
+        log_error "Failed to start Traefik"
+        return 1
+    fi
 
     # Start MySQL
     log_info "Starting MySQL..."
-    (cd "$CONFIG_DIR/mysql" && docker compose up -d)
-    log_ok "MySQL started"
+    if (cd "$CONFIG_DIR/mysql" && docker compose up -d); then
+        log_ok "MySQL started"
+    else
+        log_error "Failed to start MySQL"
+        return 1
+    fi
 
     # Wait a bit and check status
     sleep 3

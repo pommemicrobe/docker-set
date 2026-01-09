@@ -52,7 +52,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Restore positional arguments
-set -- "${POSITIONAL[@]}"
+set -- "${POSITIONAL[@]+"${POSITIONAL[@]}"}"
 
 # Check argument count
 if [[ $# -lt 1 ]]; then

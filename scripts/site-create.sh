@@ -31,7 +31,14 @@ show_help() {
     echo "  --with-db         Create database user for this site"
     echo "  --no-ssl          Use HTTP instead of HTTPS (for local development)"
     echo "  --no-start        Don't start container after creation"
+    echo "  --aliases <domains>      Additional domains (comma-separated)"
+    echo "  --redirect-aliases       Redirect aliases to main domain (301)"
     echo "  --help, -h        Show this help"
+    echo ""
+    echo "Domain aliases:"
+    echo "  Use --aliases to add additional domains that serve the same content."
+    echo "  Use --redirect-aliases to redirect all aliases to the main URL (first one)."
+    echo "  The main URL is always the one specified as site-url argument."
     echo ""
     echo "Examples:"
     echo "  $0                                           # Interactive"
@@ -39,6 +46,12 @@ show_help() {
     echo "  $0 my-app app.com php-traefik --with-db     # With database"
     echo "  $0 my-app app.com php-traefik --framework laravel --with-db"
     echo "  $0 my-app app.local php-traefik --no-ssl   # Local dev (HTTP)"
+    echo ""
+    echo "  # Multiple domains serving same content:"
+    echo "  $0 my-site example.com php-traefik --aliases www.example.com"
+    echo ""
+    echo "  # Redirect www to non-www:"
+    echo "  $0 my-site example.com php-traefik --aliases www.example.com --redirect-aliases"
 }
 
 # =============================================================================
@@ -233,6 +246,17 @@ interactive_mode() {
         else
             NO_SSL=true
         fi
+
+        # Domain aliases
+        echo ""
+        read -p "$(echo -e "${YELLOW}?${NC} Additional domains (comma-separated, or empty): ")" ALIASES
+        if [[ -n "$ALIASES" ]]; then
+            if confirm "Redirect aliases to main domain ($SITE_URL)?" "y"; then
+                REDIRECT_ALIASES=true
+            else
+                REDIRECT_ALIASES=false
+            fi
+        fi
     fi
 
     # Database
@@ -260,6 +284,10 @@ interactive_mode() {
     echo "  CPU:        $CPU_LIMIT"
     echo "  Memory:     $MEMORY_LIMIT"
     [[ "$TEMPLATE_NAME" == *-traefik ]] && echo "  SSL:        $([[ "$NO_SSL" == false ]] && echo "yes (HTTPS)" || echo "no (HTTP)")"
+    if [[ -n "$ALIASES" ]]; then
+        echo "  Aliases:    $ALIASES"
+        echo "  Redirect:   $([[ "$REDIRECT_ALIASES" == true ]] && echo "yes (301 to $SITE_URL)" || echo "no (same content)")"
+    fi
     echo "  Database:   $CREATE_DB"
     echo "  Auto-start: $([[ "$NO_START" == false ]] && echo "yes" || echo "no")"
     echo ""
@@ -281,6 +309,8 @@ MEMORY_LIMIT="512M"
 FRAMEWORK_NAME=""
 CREATE_DB=false
 INTERACTIVE=false
+ALIASES=""
+REDIRECT_ALIASES=false
 
 # Parse arguments
 POSITIONAL=()
@@ -308,6 +338,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-ssl)
             NO_SSL=true
+            shift
+            ;;
+        --aliases)
+            ALIASES="$2"
+            shift 2
+            ;;
+        --redirect-aliases)
+            REDIRECT_ALIASES=true
             shift
             ;;
         --help|-h)
@@ -440,6 +478,70 @@ if [[ -f "$COMPOSE_FILE" ]]; then
         log_ok "HTTP mode configured (no SSL)"
     fi
 
+    # Configure domain aliases for traefik templates
+    if [[ "$TEMPLATE_NAME" == *-traefik ]] && [[ -n "$ALIASES" ]]; then
+        log_info "Configuring domain aliases..."
+
+        # Convert comma-separated aliases to array
+        IFS=',' read -ra ALIAS_ARRAY <<< "$ALIASES"
+
+        if [[ "$REDIRECT_ALIASES" == true ]]; then
+            # Mode: Redirect aliases to main domain
+            # Build Host rule for aliases only
+            ALIAS_HOSTS=""
+            for domain_alias in "${ALIAS_ARRAY[@]}"; do
+                domain_alias=$(echo "$domain_alias" | xargs)  # trim whitespace
+                if [[ -n "$ALIAS_HOSTS" ]]; then
+                    ALIAS_HOSTS="$ALIAS_HOSTS || Host(\\\`$domain_alias\\\`)"
+                else
+                    ALIAS_HOSTS="Host(\\\`$domain_alias\\\`)"
+                fi
+            done
+
+            # Determine redirect scheme
+            if [[ "$NO_SSL" == true ]]; then
+                REDIRECT_SCHEME="http"
+                REDIRECT_ENTRYPOINT="web"
+            else
+                REDIRECT_SCHEME="https"
+                REDIRECT_ENTRYPOINT="websecure"
+            fi
+
+            # Build redirect labels
+            {
+                echo "      - \"traefik.http.routers.\${SITE_NAME}-redirect.rule=$ALIAS_HOSTS\""
+                echo "      - \"traefik.http.routers.\${SITE_NAME}-redirect.entrypoints=$REDIRECT_ENTRYPOINT\""
+                echo "      - \"traefik.http.routers.\${SITE_NAME}-redirect.middlewares=\${SITE_NAME}-redirect\""
+                echo "      - \"traefik.http.middlewares.\${SITE_NAME}-redirect.redirectregex.regex=^${REDIRECT_SCHEME}://[^/]+(.*)\""
+                echo "      - \"traefik.http.middlewares.\${SITE_NAME}-redirect.redirectregex.replacement=${REDIRECT_SCHEME}://\${SITE_URL}\\\${1}\""
+                echo "      - \"traefik.http.middlewares.\${SITE_NAME}-redirect.redirectregex.permanent=true\""
+                if [[ "$NO_SSL" == false ]]; then
+                    echo "      - \"traefik.http.routers.\${SITE_NAME}-redirect.tls.certresolver=le\""
+                fi
+            } > "$NEW_SITE_DIR/.redirect_labels.tmp"
+
+            # Insert redirect labels after loadbalancer line using awk (more portable than sed -i with multiline)
+            awk '/loadbalancer.server.port/ {print; while((getline line < "'"$NEW_SITE_DIR/.redirect_labels.tmp"'") > 0) print line; next} {print}' "$COMPOSE_FILE" > "$COMPOSE_FILE.tmp"
+            mv "$COMPOSE_FILE.tmp" "$COMPOSE_FILE"
+            rm -f "$NEW_SITE_DIR/.redirect_labels.tmp"
+
+            log_ok "Aliases configured with redirect to $SITE_URL"
+        else
+            # Mode: All domains serve the same content
+            # Build combined Host rule
+            ALL_HOSTS="Host(\\\`\${SITE_URL}\\\`)"
+            for domain_alias in "${ALIAS_ARRAY[@]}"; do
+                domain_alias=$(echo "$domain_alias" | xargs)  # trim whitespace
+                ALL_HOSTS="$ALL_HOSTS || Host(\\\`$domain_alias\\\`)"
+            done
+
+            # Replace the simple Host rule with combined rule
+            sed_inplace "s|Host(\\\`\${SITE_URL}\\\`)|$ALL_HOSTS|g" "$COMPOSE_FILE"
+
+            log_ok "Aliases configured (all domains serve same content)"
+        fi
+    fi
+
     log_ok "Docker service configured (CPU: $CPU_LIMIT, Memory: $MEMORY_LIMIT)"
 fi
 
@@ -497,18 +599,17 @@ if [[ "$CREATE_DB" == true ]]; then
             DB_PASSWORD=$(generate_password 24)
 
             # Create database and user
-            docker exec mysql mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "
+            if docker exec mysql mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "
                 CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                 CREATE USER IF NOT EXISTS '$DB_USER'@'%' IDENTIFIED BY '$DB_PASSWORD';
                 GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'%';
                 FLUSH PRIVILEGES;
-            " 2>/dev/null
-
-            if [[ $? -eq 0 ]]; then
+            " 2>/dev/null; then
                 log_ok "Database '$DB_NAME' created"
                 log_ok "User '$DB_USER' created"
             else
                 log_warn "Failed to create database (MySQL error)"
+                DB_PASSWORD=""  # Clear password on failure
             fi
         else
             log_warn "MySQL .env not found, skipping database creation"
@@ -549,14 +650,19 @@ if [[ "$NO_START" == true ]]; then
 else
     echo ""
     log_info "Starting container..."
-    (cd "$NEW_SITE_DIR" && docker compose up -d)
-    log_ok "Container started"
+    if (cd "$NEW_SITE_DIR" && docker compose up -d); then
+        log_ok "Container started"
 
-    # Show status
-    sleep 2
-    echo ""
-    log_info "Container status:"
-    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "$SITE_NAME|NAMES"
+        # Show status
+        sleep 2
+        echo ""
+        log_info "Container status:"
+        docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "$SITE_NAME|NAMES"
+    else
+        log_error "Failed to start container"
+        log_info "Check logs with: cd $NEW_SITE_DIR && docker compose logs"
+        exit 1
+    fi
 fi
 
 echo ""
