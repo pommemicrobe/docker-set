@@ -29,6 +29,7 @@ show_help() {
     echo "  --memory <size>   Memory limit (e.g., 256M, 512M, 1G). Default: 512M"
     echo "  --framework <name> Framework to install (optional)"
     echo "  --with-db         Create database user for this site"
+    echo "  --no-ssl          Use HTTP instead of HTTPS (for local development)"
     echo "  --no-start        Don't start container after creation"
     echo "  --help, -h        Show this help"
     echo ""
@@ -37,6 +38,7 @@ show_help() {
     echo "  $0 my-blog my-blog.com php-traefik          # Direct"
     echo "  $0 my-app app.com php-traefik --with-db     # With database"
     echo "  $0 my-app app.com php-traefik --framework laravel --with-db"
+    echo "  $0 my-app app.local php-traefik --no-ssl   # Local dev (HTTP)"
 }
 
 # =============================================================================
@@ -223,6 +225,16 @@ interactive_mode() {
     read -p "$(echo -e "${YELLOW}?${NC} Memory limit [512M]: ")" input
     MEMORY_LIMIT="${input:-512M}"
 
+    # SSL option (only for traefik templates)
+    if [[ "$TEMPLATE_NAME" == *-traefik ]]; then
+        echo ""
+        if confirm "Use HTTPS with Let's Encrypt? (No for local dev)" "y"; then
+            NO_SSL=false
+        else
+            NO_SSL=true
+        fi
+    fi
+
     # Database
     echo ""
     if confirm "Create database user for this site?" "y"; then
@@ -247,6 +259,7 @@ interactive_mode() {
     [[ -n "$FRAMEWORK_NAME" ]] && echo "  Framework:  $FRAMEWORK_NAME"
     echo "  CPU:        $CPU_LIMIT"
     echo "  Memory:     $MEMORY_LIMIT"
+    [[ "$TEMPLATE_NAME" == *-traefik ]] && echo "  SSL:        $([[ "$NO_SSL" == false ]] && echo "yes (HTTPS)" || echo "no (HTTP)")"
     echo "  Database:   $CREATE_DB"
     echo "  Auto-start: $([[ "$NO_START" == false ]] && echo "yes" || echo "no")"
     echo ""
@@ -262,6 +275,7 @@ interactive_mode() {
 # =============================================================================
 
 NO_START=false
+NO_SSL=false
 CPU_LIMIT="1"
 MEMORY_LIMIT="512M"
 FRAMEWORK_NAME=""
@@ -290,6 +304,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --with-db)
             CREATE_DB=true
+            shift
+            ;;
+        --no-ssl)
+            NO_SSL=true
             shift
             ;;
         --help|-h)
@@ -411,6 +429,17 @@ if [[ -f "$COMPOSE_FILE" ]]; then
     sed_inplace "s|SERVICE_NAME|$SITE_NAME|g" "$COMPOSE_FILE"
     sed_inplace "s|CPU_LIMIT|$CPU_LIMIT|g" "$COMPOSE_FILE"
     sed_inplace "s|MEMORY_LIMIT|$MEMORY_LIMIT|g" "$COMPOSE_FILE"
+
+    # Configure SSL/TLS for traefik templates
+    if [[ "$TEMPLATE_NAME" == *-traefik ]] && [[ "$NO_SSL" == true ]]; then
+        log_info "Configuring HTTP (no SSL)..."
+        # Change entrypoint from websecure to web
+        sed_inplace "s|entrypoints=websecure|entrypoints=web|g" "$COMPOSE_FILE"
+        # Remove TLS certresolver line
+        sed_inplace "/tls.certresolver/d" "$COMPOSE_FILE"
+        log_ok "HTTP mode configured (no SSL)"
+    fi
+
     log_ok "Docker service configured (CPU: $CPU_LIMIT, Memory: $MEMORY_LIMIT)"
 fi
 

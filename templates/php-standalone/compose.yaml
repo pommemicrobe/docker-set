@@ -5,6 +5,8 @@ services:
     restart: always
     volumes:
       - ./app:/app/public
+    environment:
+      - "SERVER_ROOT=/app/public"
     ports:
       - "80:80"
       - "443:443"

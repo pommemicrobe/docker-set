@@ -7,6 +7,7 @@ services:
       - ./app:/app/public
     environment:
       - "SERVER_NAME=:80"
+      - "SERVER_ROOT=/app/public"
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.${SITE_NAME}.rule=Host(`${SITE_URL}`)"
