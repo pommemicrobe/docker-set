@@ -1,0 +1,36 @@
+# Dependencies
+app/node_modules/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+app/logs/
+
+# Environment files
+app/.env
+app/.env.local
+app/.env.*.local
+
+# Build artifacts
+app/dist/
+app/build/
+app/.next/
+app/.nuxt/
+app/.output/
+
+# Test & Coverage
+app/coverage/
+app/.nyc_output/

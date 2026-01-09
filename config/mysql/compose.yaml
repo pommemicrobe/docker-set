@@ -3,16 +3,21 @@ services:
     image: mysql:9.4.0
     container_name: mysql
     restart: always
+    security_opt:
+      - no-new-privileges:true
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
     volumes:
       - ./data:/var/lib/mysql
     networks:
-      - internal
       - web
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
 networks:
-  internal:
-    driver: bridge
   web:
     external: true

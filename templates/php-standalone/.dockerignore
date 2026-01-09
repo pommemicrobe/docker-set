@@ -1,0 +1,34 @@
+# Dependencies
+app/vendor/
+app/node_modules/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment files (keep .env.dist)
+app/.env
+app/.env.local
+app/.env.*.local
+
+# Cache
+app/var/
+app/storage/
+app/.cache/
+
+# Build artifacts
+app/public/build/
+app/public/hot

@@ -1,0 +1,27 @@
+services:
+  traefik:
+    image: traefik:v3.5.0
+    container_name: traefik
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./traefik.yaml:/etc/traefik/traefik.yml:ro"
+      - "./acme.json:/letsencrypt/acme.json"
+      - "./logs:/var/log/traefik"
+    networks:
+      - web
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  web:
+    external: true

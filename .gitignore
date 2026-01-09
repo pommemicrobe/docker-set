@@ -1,18 +1,45 @@
-# traefik
-traefik/*
-!traefik/compose.yaml
-!traefik/acme.json.dist
-!traefik/traefik.yaml.dist
+# =============================================================================
+# Configuration (fichiers générés)
+# =============================================================================
 
-# mysql
-mysql/data/*
-!mysql/data/.gitkeep
+# Traefik
+config/traefik/traefik.yaml
+config/traefik/acme.json
+config/traefik/logs/*
+!config/traefik/logs/.gitkeep
 
-# sites
+# MySQL
+config/mysql/.env
+config/mysql/data/*
+!config/mysql/data/.gitkeep
+
+# =============================================================================
+# Sites déployés
+# =============================================================================
 sites/*
 !sites/.gitkeep
 
-CLAUDE.md
-.claude
+# =============================================================================
+# Backups
+# =============================================================================
+backups/*
+!backups/.gitkeep
 
+# =============================================================================
+# Système
+# =============================================================================
 .DS_Store
+*.log
+.env
+
+# =============================================================================
+# IDE / Outils
+# =============================================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Claude Code
+CLAUDE.md
+.claude/

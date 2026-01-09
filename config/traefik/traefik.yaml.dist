@@ -1,0 +1,77 @@
+# =============================================================================
+# Configuration Traefik - Production
+# =============================================================================
+#
+# Instructions:
+# 1. Copier ce fichier vers traefik.yaml
+# 2. Remplacer ACME_EMAIL par votre email
+# 3. Lancer avec: sudo docker compose up -d
+#
+
+# -----------------------------------------------------------------------------
+# API & Dashboard
+# -----------------------------------------------------------------------------
+api:
+  dashboard: false
+  insecure: false
+
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
+log:
+  level: WARN
+  format: json
+
+accessLog:
+  filePath: "/var/log/traefik/access.log"
+  bufferingSize: 100
+  filters:
+    statusCodes:
+      - "400-599"
+
+# -----------------------------------------------------------------------------
+# Entry Points
+# -----------------------------------------------------------------------------
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entrypoint:
+          to: "websecure"
+          scheme: "https"
+          permanent: true
+
+  websecure:
+    address: ":443"
+    http:
+      tls:
+        certResolver: le
+
+# -----------------------------------------------------------------------------
+# Providers
+# -----------------------------------------------------------------------------
+providers:
+  docker:
+    exposedByDefault: false
+    network: web
+
+# -----------------------------------------------------------------------------
+# Certificats SSL (Let's Encrypt)
+# -----------------------------------------------------------------------------
+certificatesResolvers:
+  le:
+    acme:
+      # IMPORTANT: Remplacez par votre email
+      email: "ACME_EMAIL"
+      storage: "/letsencrypt/acme.json"
+
+      # Challenge TLS-ALPN (recommandé)
+      tlsChallenge: {}
+
+      # Challenge HTTP (fallback)
+      httpChallenge:
+        entryPoint: web
+
+      # Décommentez pour utiliser le serveur de staging Let's Encrypt (tests)
+      # caServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
