@@ -15,6 +15,17 @@ services:
       - "traefik.http.services.${SITE_NAME}.loadbalancer.server.port=80"
     networks:
       - web
+    deploy:
+      resources:
+        limits:
+          cpus: 'CPU_LIMIT'
+          memory: MEMORY_LIMIT
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
 
 networks:
   web:

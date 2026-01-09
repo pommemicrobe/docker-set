@@ -6,7 +6,7 @@ services:
     volumes:
       - ./app:/app
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=production
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.${SITE_NAME}.rule=Host(`${SITE_URL}`)"
@@ -15,6 +15,17 @@ services:
       - "traefik.http.services.${SITE_NAME}.loadbalancer.server.port=3000"
     networks:
       - web
+    deploy:
+      resources:
+        limits:
+          cpus: 'CPU_LIMIT'
+          memory: MEMORY_LIMIT
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
 
 networks:
   web:

@@ -9,3 +9,14 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=development
+    deploy:
+      resources:
+        limits:
+          cpus: 'CPU_LIMIT'
+          memory: MEMORY_LIMIT
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"

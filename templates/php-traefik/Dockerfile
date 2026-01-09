@@ -1,10 +1,10 @@
-FROM dunglas/frankenphp
+# FrankenPHP with PHP 8.4 (latest stable)
+# https://hub.docker.com/r/dunglas/frankenphp
+FROM dunglas/frankenphp:php8.4-bookworm
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     git \
-    nodejs \
-    npm \
     zip \
     unzip \
     curl \
@@ -18,10 +18,21 @@ RUN install-php-extensions \
     zip \
     opcache \
     mysqli \
-    redis
+    redis \
+    bcmath \
+    exif \
+    pcntl \
+    sockets \
+    imagick \
+    gettext
 
-# Install Composer (auto-verified, no hardcoded hash)
-COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
+# Install Composer
+COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
+
+# Install Node.js 24 LTS
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app/public

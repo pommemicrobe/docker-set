@@ -1,4 +1,6 @@
-FROM node:22-alpine
+# Node.js 24 LTS (Krypton)
+# https://nodejs.org/en/about/previous-releases
+FROM node:24-alpine
 
 # Install system dependencies
 RUN apk add --no-cache git curl
