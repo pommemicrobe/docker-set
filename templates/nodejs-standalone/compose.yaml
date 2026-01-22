@@ -8,7 +8,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=${NODE_ENV}
+      - PM2_APP_NAME=${PM2_APP_NAME}
     deploy:
       resources:
         limits:

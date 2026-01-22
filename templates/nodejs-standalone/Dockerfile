@@ -19,4 +19,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:3000/health || curl -f http://localhost:3000/ || exit 1
 
 # Install dependencies at runtime and start with PM2
-CMD ["sh", "-c", "npm install && pm2-runtime start ecosystem.config.js"]
+# If PM2_APP_NAME is set, start only that app; otherwise start all apps
+CMD ["sh", "-c", "npm install && pm2-runtime start ecosystem.config.js ${PM2_APP_NAME:+--only $PM2_APP_NAME}"]

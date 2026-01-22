@@ -6,7 +6,8 @@ services:
     volumes:
       - ./app:/app
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=${NODE_ENV}
+      - PM2_APP_NAME=${PM2_APP_NAME}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.${SITE_NAME}.rule=Host(`${SITE_URL}`)"
