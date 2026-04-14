@@ -64,6 +64,19 @@ install_framework() {
         return 1
     fi
 
+    # Determine the container mount point for app/ by reading the compose volume
+    # PHP templates: ./app:/app/public  → container_app_dir=/app/public
+    # Node templates: ./app:/app        → container_app_dir=/app
+    local container_app_dir="/app"
+    local compose_file="$site_dir/compose.yaml"
+    if [[ -f "$compose_file" ]]; then
+        local mount_target
+        mount_target=$(grep -E '^\s*-\s*\./app:' "$compose_file" | sed 's/.*\.\/app://' | xargs)
+        if [[ -n "$mount_target" ]]; then
+            container_app_dir="$mount_target"
+        fi
+    fi
+
     # Copy framework files to app/.framework/
     cp -r "$framework_dir" "$app_dir/.framework"
 
@@ -71,7 +84,7 @@ install_framework() {
     log_info "Running framework installer in container..."
     if ! (cd "$site_dir" && docker compose run --rm \
         -e SITE_NAME="$site_name" -e SITE_URL="$site_url" \
-        "$site_name" sh /app/.framework/install.sh); then
+        "$site_name" sh "$container_app_dir/.framework/install.sh"); then
         log_error "Framework installation failed"
         rm -rf "$app_dir/.framework"
         return 1
