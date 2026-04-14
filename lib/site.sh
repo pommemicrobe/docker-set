@@ -201,14 +201,14 @@ check_standalone_ports() {
     local has_conflict=false
 
     # Extract ports from compose.yaml
-    while IFS= read -r line; do
-        if [[ "$line" =~ \"([0-9]+):[0-9]+\" ]]; then
-            local port="${BASH_REMATCH[1]}"
-            if ! check_port_conflict "$port"; then
-                has_conflict=true
-            fi
+    local ports
+    ports=$(grep -Eo '"([0-9]+):[0-9]+"' "$compose_file" 2>/dev/null | grep -Eo '^"[0-9]+' | tr -d '"')
+
+    for port in $ports; do
+        if ! check_port_conflict "$port"; then
+            has_conflict=true
         fi
-    done < <(grep -E '^\s*-\s*"[0-9]+:[0-9]+"' "$compose_file" 2>/dev/null)
+    done
 
     if [[ "$has_conflict" == true ]]; then
         log_warn "Some ports are already in use. The container may fail to start."
