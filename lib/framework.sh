@@ -6,7 +6,7 @@
 # Requires: common.sh to be sourced first
 #
 # Each framework has a self-contained install.sh that runs inside the site container.
-# Flow: copy framework dir to app/.framework/ → docker compose run → cleanup
+# Flow: copy framework dir to site/.framework/ → docker compose run with volume mount → cleanup
 #
 
 # =============================================================================
@@ -34,9 +34,9 @@ get_frameworks() {
 #
 # Steps:
 #   1. Build the site image
-#   2. Copy framework files to app/.framework/
-#   3. Run install.sh inside the container (via docker compose run)
-#   4. Clean up app/.framework/
+#   2. Copy framework files to site/.framework/ (outside app volume)
+#   3. Run install.sh inside the container (mounted at /tmp/.framework/)
+#   4. Clean up site/.framework/
 install_framework() {
     local framework_name="$1"
     local app_dir="$2"
@@ -77,27 +77,32 @@ install_framework() {
         fi
     fi
 
-    # Copy framework files to app/.framework/
-    cp -r "$framework_dir" "$app_dir/.framework"
+    # Copy framework files OUTSIDE the app volume to avoid polluting it
+    # This prevents "directory is not empty" errors from frameworks like Laravel
+    cp -r "$framework_dir" "$site_dir/.framework"
 
     # Run install script inside the container
+    # - Mount .framework/ at /tmp/.framework/ (separate from app volume)
+    # - Pass APP_DIR so the script knows where the volume is mounted
     log_info "Running framework installer in container..."
     if ! (cd "$site_dir" && docker compose run --rm \
-        -e SITE_NAME="$site_name" -e SITE_URL="$site_url" \
-        "$site_name" sh "$container_app_dir/.framework/install.sh"); then
+        -v "$(pwd)/.framework:/tmp/.framework:ro" \
+        -e SITE_NAME="$site_name" \
+        -e SITE_URL="$site_url" \
+        -e APP_DIR="$container_app_dir" \
+        "$site_name" sh /tmp/.framework/install.sh); then
         log_error "Framework installation failed"
-        rm -rf "$app_dir/.framework"
+        rm -rf "$site_dir/.framework"
         return 1
     fi
 
     # Clean up
-    rm -rf "$app_dir/.framework"
+    rm -rf "$site_dir/.framework"
 
     # Adjust compose.yaml for framework-specific server root
     local server_root
     server_root=$(get_framework_server_root "$framework_name")
     if [[ -n "$server_root" ]]; then
-        local compose_file="$site_dir/compose.yaml"
         if grep -q "SERVER_ROOT=" "$compose_file" 2>/dev/null; then
             sed_inplace "s|SERVER_ROOT=/app/public|SERVER_ROOT=$server_root|g" "$compose_file"
             log_ok "SERVER_ROOT adjusted to $server_root"

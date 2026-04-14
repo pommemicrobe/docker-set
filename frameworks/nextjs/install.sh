@@ -1,9 +1,9 @@
 #!/bin/sh
 # Next.js installer — runs inside the site container
-# Env: SITE_NAME, SITE_URL (provided by framework.sh)
+# Env: SITE_NAME, SITE_URL, APP_DIR (provided by framework.sh)
 set -eu
 
-cd /app
+cd "$APP_DIR"
 
 npx --yes create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias '@/*' --use-npm
 
