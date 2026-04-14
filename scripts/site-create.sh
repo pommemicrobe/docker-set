@@ -7,8 +7,11 @@
 #   ./scripts/site-create.sh <name> <url> <tpl>  # Direct mode
 #
 
-# Load common library
+# Load libraries
 source "$(dirname "$0")/../lib/common.sh"
+source "$(dirname "$0")/../lib/site.sh"
+source "$(dirname "$0")/../lib/database.sh"
+source "$(dirname "$0")/../lib/framework.sh"
 
 # =============================================================================
 # HELP
@@ -25,27 +28,31 @@ show_help() {
     echo "  template-name Template to use"
     echo ""
     echo "Options:"
-    echo "  --cpu <num>       CPU limit (e.g., 0.5, 1, 2). Default: 1"
-    echo "  --memory <size>   Memory limit (e.g., 256M, 512M, 1G). Default: 512M"
-    echo "  --framework <name> Framework to install (optional)"
-    echo "  --with-db         Create database user for this site"
-    echo "  --no-ssl          Use HTTP instead of HTTPS (for local development)"
-    echo "  --no-start        Don't start container after creation"
-    echo "  --aliases <domains>      Additional domains (comma-separated)"
-    echo "  --redirect-aliases       Redirect aliases to main domain (301)"
-    echo "  --help, -h        Show this help"
+    echo "  --cpu <num>           CPU limit (e.g., 0.5, 1, 2). Default: 1"
+    echo "  --memory <size>       Memory limit (e.g., 256M, 512M, 1G). Default: 512M"
+    echo "  --php-version <ver>   PHP version (${PHP_VERSIONS[*]}). Default: $DEFAULT_PHP_VERSION"
+    echo "  --node-version <ver>  Node.js version (${NODE_VERSIONS[*]}). Default: $DEFAULT_NODE_VERSION"
+    echo "  --framework <name>    Framework to install (optional)"
+    echo "  --with-db             Create database user for this site"
+    echo "  --no-ssl              Use HTTP instead of HTTPS (for local development)"
+    echo "  --no-autostart        Don't auto-start container when Docker starts"
+    echo "  --no-start            Don't start container after creation"
+    echo "  --aliases <domains>   Additional domains (comma-separated)"
+    echo "  --redirect-aliases    Redirect aliases to main domain (301)"
+    echo "  --help, -h            Show this help"
     echo ""
     echo "Domain aliases:"
     echo "  Use --aliases to add additional domains that serve the same content."
-    echo "  Use --redirect-aliases to redirect all aliases to the main URL (first one)."
-    echo "  The main URL is always the one specified as site-url argument."
+    echo "  Use --redirect-aliases to redirect all aliases to the main URL."
     echo ""
     echo "Examples:"
-    echo "  $0                                           # Interactive"
-    echo "  $0 my-blog my-blog.com php-traefik          # Direct"
-    echo "  $0 my-app app.com php-traefik --with-db     # With database"
+    echo "  $0                                                    # Interactive"
+    echo "  $0 my-blog my-blog.com php-traefik                   # Direct"
+    echo "  $0 my-app app.com php-traefik --with-db              # With database"
+    echo "  $0 my-app app.com php-traefik --php-version 8.3      # PHP 8.3"
+    echo "  $0 my-app app.com nodejs-traefik --node-version 22   # Node 22"
     echo "  $0 my-app app.com php-traefik --framework laravel --with-db"
-    echo "  $0 my-app app.local php-traefik --no-ssl   # Local dev (HTTP)"
+    echo "  $0 my-app app.local php-traefik --no-ssl             # Local dev"
     echo ""
     echo "  # Multiple domains serving same content:"
     echo "  $0 my-site example.com php-traefik --aliases www.example.com"
@@ -55,86 +62,10 @@ show_help() {
 }
 
 # =============================================================================
-# DYNAMIC LISTS
+# INTERACTIVE MODE
 # =============================================================================
 
-# Get available templates
-get_templates() {
-    local templates=()
-    for dir in "$TEMPLATES_DIR"/*/; do
-        if [[ -d "$dir" ]]; then
-            templates+=("$(basename "$dir")")
-        fi
-    done
-    echo "${templates[@]}"
-}
-
-# Get available frameworks
-get_frameworks() {
-    local frameworks=()
-    for dir in "$FRAMEWORKS_DIR"/*/; do
-        if [[ -d "$dir" && -n "$(ls -A "$dir" 2>/dev/null)" ]]; then
-            frameworks+=("$(basename "$dir")")
-        fi
-    done
-    echo "${frameworks[@]}"
-}
-
-# =============================================================================
-# INTERACTIVE PROMPTS
-# =============================================================================
-
-# Select from a list
-select_option() {
-    local prompt="$1"
-    shift
-    local options=("$@")
-    local selected=0
-    local key=""
-
-    # Hide cursor
-    tput civis 2>/dev/null || true
-
-    while true; do
-        # Clear and redraw
-        echo -e "\n${YELLOW}?${NC} $prompt"
-        for i in "${!options[@]}"; do
-            if [[ $i -eq $selected ]]; then
-                echo -e "  ${GREEN}› ${options[$i]}${NC}"
-            else
-                echo "    ${options[$i]}"
-            fi
-        done
-
-        # Read single key
-        read -rsn1 key
-
-        case "$key" in
-            A) # Up arrow
-                ((selected--))
-                [[ $selected -lt 0 ]] && selected=$((${#options[@]} - 1))
-                ;;
-            B) # Down arrow
-                ((selected++))
-                [[ $selected -ge ${#options[@]} ]] && selected=0
-                ;;
-            "") # Enter
-                break
-                ;;
-        esac
-
-        # Move cursor up to redraw
-        tput cuu $((${#options[@]} + 2)) 2>/dev/null || true
-        tput ed 2>/dev/null || true
-    done
-
-    # Show cursor
-    tput cnorm 2>/dev/null || true
-
-    echo "${options[$selected]}"
-}
-
-# Simple select for terminals without cursor control
+# Simple numbered selection
 simple_select() {
     local prompt="$1"
     shift
@@ -156,7 +87,6 @@ simple_select() {
     done
 }
 
-# Interactive mode
 interactive_mode() {
     print_header "Create New Site"
 
@@ -208,25 +138,62 @@ interactive_mode() {
     done
     log_ok "Template: $TEMPLATE_NAME"
 
-    # Framework selection (only for PHP templates)
-    FRAMEWORK_NAME=""
-    if [[ "$TEMPLATE_NAME" == php-* ]]; then
-        local frameworks=($(get_frameworks))
-        if [[ ${#frameworks[@]} -gt 0 ]]; then
-            echo ""
-            log_info "Available frameworks (optional):"
-            echo "  0) None"
-            for i in "${!frameworks[@]}"; do
-                echo "  $((i + 1))) ${frameworks[$i]}"
-            done
+    # Runtime version selection
+    local runtime
+    runtime=$(get_template_runtime "$TEMPLATE_NAME")
 
-            read -p "$(echo -e "${YELLOW}?${NC} Select framework [0-${#frameworks[@]}]: ")" choice
-            if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#frameworks[@]} ]]; then
-                FRAMEWORK_NAME="${frameworks[$((choice - 1))]}"
-                log_ok "Framework: $FRAMEWORK_NAME"
+    case "$runtime" in
+        php)
+            echo ""
+            log_info "Available PHP versions:"
+            for i in "${!PHP_VERSIONS[@]}"; do
+                local marker=""
+                [[ "${PHP_VERSIONS[$i]}" == "$DEFAULT_PHP_VERSION" ]] && marker=" (default)"
+                echo "  $((i + 1))) ${PHP_VERSIONS[$i]}$marker"
+            done
+            read -p "$(echo -e "${YELLOW}?${NC} Select PHP version [1-${#PHP_VERSIONS[@]}] (default: 1): ")" choice
+            if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#PHP_VERSIONS[@]} ]]; then
+                RUNTIME_VERSION="${PHP_VERSIONS[$((choice - 1))]}"
             else
-                log_info "No framework selected"
+                RUNTIME_VERSION="$DEFAULT_PHP_VERSION"
             fi
+            log_ok "PHP version: $RUNTIME_VERSION"
+            ;;
+        nodejs)
+            echo ""
+            log_info "Available Node.js versions:"
+            for i in "${!NODE_VERSIONS[@]}"; do
+                local marker=""
+                [[ "${NODE_VERSIONS[$i]}" == "$DEFAULT_NODE_VERSION" ]] && marker=" (default)"
+                echo "  $((i + 1))) ${NODE_VERSIONS[$i]}$marker"
+            done
+            read -p "$(echo -e "${YELLOW}?${NC} Select Node.js version [1-${#NODE_VERSIONS[@]}] (default: 1): ")" choice
+            if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#NODE_VERSIONS[@]} ]]; then
+                RUNTIME_VERSION="${NODE_VERSIONS[$((choice - 1))]}"
+            else
+                RUNTIME_VERSION="$DEFAULT_NODE_VERSION"
+            fi
+            log_ok "Node.js version: $RUNTIME_VERSION"
+            ;;
+    esac
+
+    # Framework selection
+    FRAMEWORK_NAME=""
+    local frameworks=($(get_frameworks))
+    if [[ ${#frameworks[@]} -gt 0 ]]; then
+        echo ""
+        log_info "Available frameworks (optional):"
+        echo "  0) None"
+        for i in "${!frameworks[@]}"; do
+            echo "  $((i + 1))) ${frameworks[$i]}"
+        done
+
+        read -p "$(echo -e "${YELLOW}?${NC} Select framework [0-${#frameworks[@]}]: ")" choice
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#frameworks[@]} ]]; then
+            FRAMEWORK_NAME="${frameworks[$((choice - 1))]}"
+            log_ok "Framework: $FRAMEWORK_NAME"
+        else
+            log_info "No framework selected"
         fi
     fi
 
@@ -239,7 +206,7 @@ interactive_mode() {
     MEMORY_LIMIT="${input:-512M}"
 
     # SSL option (only for traefik templates)
-    if [[ "$TEMPLATE_NAME" == *-traefik ]]; then
+    if is_traefik_template "$TEMPLATE_NAME"; then
         echo ""
         if confirm "Use HTTPS with Let's Encrypt? (No for local dev)" "y"; then
             NO_SSL=false
@@ -267,6 +234,13 @@ interactive_mode() {
         CREATE_DB=false
     fi
 
+    # Autostart with Docker
+    if confirm "Auto-start container when Docker starts?" "y"; then
+        NO_AUTOSTART=false
+    else
+        NO_AUTOSTART=true
+    fi
+
     # Start container
     if confirm "Start container after creation?" "y"; then
         NO_START=false
@@ -280,16 +254,20 @@ interactive_mode() {
     echo "  Site name:  $SITE_NAME"
     echo "  URL:        $SITE_URL"
     echo "  Template:   $TEMPLATE_NAME"
+    echo "  Version:    $RUNTIME_VERSION"
     [[ -n "$FRAMEWORK_NAME" ]] && echo "  Framework:  $FRAMEWORK_NAME"
     echo "  CPU:        $CPU_LIMIT"
     echo "  Memory:     $MEMORY_LIMIT"
-    [[ "$TEMPLATE_NAME" == *-traefik ]] && echo "  SSL:        $([[ "$NO_SSL" == false ]] && echo "yes (HTTPS)" || echo "no (HTTP)")"
+    if is_traefik_template "$TEMPLATE_NAME"; then
+        echo "  SSL:        $([[ "$NO_SSL" == false ]] && echo "yes (HTTPS)" || echo "no (HTTP)")"
+    fi
     if [[ -n "$ALIASES" ]]; then
         echo "  Aliases:    $ALIASES"
         echo "  Redirect:   $([[ "$REDIRECT_ALIASES" == true ]] && echo "yes (301 to $SITE_URL)" || echo "no (same content)")"
     fi
     echo "  Database:   $CREATE_DB"
-    echo "  Auto-start: $([[ "$NO_START" == false ]] && echo "yes" || echo "no")"
+    echo "  Autostart:  $([[ "$NO_AUTOSTART" == false ]] && echo "yes (starts with Docker)" || echo "no (manual start only)")"
+    echo "  Start now:  $([[ "$NO_START" == false ]] && echo "yes" || echo "no")"
     echo ""
 
     if ! confirm "Proceed with creation?" "y"; then
@@ -304,6 +282,7 @@ interactive_mode() {
 
 NO_START=false
 NO_SSL=false
+NO_AUTOSTART=false
 CPU_LIMIT="1"
 MEMORY_LIMIT="512M"
 FRAMEWORK_NAME=""
@@ -311,6 +290,7 @@ CREATE_DB=false
 INTERACTIVE=false
 ALIASES=""
 REDIRECT_ALIASES=false
+RUNTIME_VERSION=""
 
 # Parse arguments
 POSITIONAL=()
@@ -320,12 +300,24 @@ while [[ $# -gt 0 ]]; do
             NO_START=true
             shift
             ;;
+        --no-autostart)
+            NO_AUTOSTART=true
+            shift
+            ;;
         --cpu)
             CPU_LIMIT="$2"
             shift 2
             ;;
         --memory)
             MEMORY_LIMIT="$2"
+            shift 2
+            ;;
+        --php-version)
+            RUNTIME_VERSION="$2"
+            shift 2
+            ;;
+        --node-version)
+            RUNTIME_VERSION="$2"
             shift 2
             ;;
         --framework)
@@ -373,38 +365,39 @@ else
 fi
 
 # =============================================================================
+# RESOLVE DEFAULTS
+# =============================================================================
+
+RUNTIME=$(get_template_runtime "$TEMPLATE_NAME")
+
+# Set default version if not specified
+if [[ -z "$RUNTIME_VERSION" ]]; then
+    case "$RUNTIME" in
+        php)    RUNTIME_VERSION="$DEFAULT_PHP_VERSION" ;;
+        nodejs) RUNTIME_VERSION="$DEFAULT_NODE_VERSION" ;;
+    esac
+fi
+
+# =============================================================================
 # VALIDATION
 # =============================================================================
 
 log_info "Validating parameters..."
 
-# Validate site name
-if ! validate_site_name "$SITE_NAME"; then
+if ! validate_site_params "$SITE_NAME" "$SITE_URL" "$TEMPLATE_NAME" "$CPU_LIMIT" "$MEMORY_LIMIT"; then
     exit 1
 fi
 
-# Validate URL
-if ! validate_url "$SITE_URL"; then
+# Validate runtime version
+if ! validate_version "$RUNTIME" "$RUNTIME_VERSION"; then
     exit 1
 fi
 
-# Validate template
-if ! validate_template_name "$TEMPLATE_NAME"; then
-    exit 1
-fi
-
-# Validate CPU limit
-if [[ ! "$CPU_LIMIT" =~ ^[0-9]+\.?[0-9]*$ ]]; then
-    log_error "Invalid CPU limit: $CPU_LIMIT"
-    log_error "Use a number like: 0.5, 1, 2"
-    exit 1
-fi
-
-# Validate memory limit
-if [[ ! "$MEMORY_LIMIT" =~ ^[0-9]+[MG]$ ]]; then
-    log_error "Invalid memory limit: $MEMORY_LIMIT"
-    log_error "Use format like: 256M, 512M, 1G"
-    exit 1
+# Validate aliases
+if [[ -n "$ALIASES" ]]; then
+    if ! validate_aliases "$ALIASES" "$SITE_URL"; then
+        exit 1
+    fi
 fi
 
 # Validate framework if specified
@@ -419,11 +412,10 @@ if [[ -n "$FRAMEWORK_NAME" ]]; then
     fi
 fi
 
-# Check site doesn't already exist
-if [[ -d "$SITES_DIR/$SITE_NAME" ]]; then
-    log_error "Site '$SITE_NAME' already exists"
-    log_info "To delete it: ./scripts/site-delete.sh $SITE_NAME"
-    exit 1
+# Ensure Docker network exists for traefik templates
+if is_traefik_template "$TEMPLATE_NAME"; then
+    require_docker
+    ensure_web_network
 fi
 
 log_ok "Parameters validated"
@@ -434,144 +426,44 @@ log_ok "Parameters validated"
 
 print_header "Creating site '$SITE_NAME'"
 
-TEMPLATE_DIR="$TEMPLATES_DIR/$TEMPLATE_NAME"
 NEW_SITE_DIR="$SITES_DIR/$SITE_NAME"
 
 # Setup cleanup on error
 set_cleanup_dir "$NEW_SITE_DIR"
 
-# Copy template
+# Copy template + shared Dockerfile
 log_info "Copying template '$TEMPLATE_NAME'..."
-cp -r "$TEMPLATE_DIR" "$NEW_SITE_DIR"
-log_ok "Template copied"
+copy_template "$TEMPLATE_NAME" "$NEW_SITE_DIR" "$RUNTIME_VERSION"
 
-# Rename .env.dist to .env
-if [[ -f "$NEW_SITE_DIR/.env.dist" ]]; then
-    mv "$NEW_SITE_DIR/.env.dist" "$NEW_SITE_DIR/.env"
-    log_ok ".env file created"
-fi
+# Configure .env
+log_info "Configuring environment..."
+configure_env "$NEW_SITE_DIR" "$SITE_NAME" "$SITE_URL" "$RUNTIME" "$RUNTIME_VERSION"
 
-# Replace placeholders in .env
-ENV_FILE="$NEW_SITE_DIR/.env"
-if [[ -f "$ENV_FILE" ]]; then
-    log_info "Configuring .env file..."
-    sed_inplace "s|SITE_NAME=SITE_NAME|SITE_NAME=$SITE_NAME|g" "$ENV_FILE"
-    sed_inplace "s|SITE_URL=SITE_URL|SITE_URL=$SITE_URL|g" "$ENV_FILE"
-    log_ok "Environment variables configured"
-fi
-
-# Replace placeholders in compose.yaml
+# Configure compose.yaml
 COMPOSE_FILE="$NEW_SITE_DIR/compose.yaml"
-if [[ -f "$COMPOSE_FILE" ]]; then
-    log_info "Configuring compose.yaml..."
-    sed_inplace "s|SERVICE_NAME|$SITE_NAME|g" "$COMPOSE_FILE"
-    sed_inplace "s|CPU_LIMIT|$CPU_LIMIT|g" "$COMPOSE_FILE"
-    sed_inplace "s|MEMORY_LIMIT|$MEMORY_LIMIT|g" "$COMPOSE_FILE"
+log_info "Configuring Docker service..."
+configure_compose "$COMPOSE_FILE" "$SITE_NAME" "$CPU_LIMIT" "$MEMORY_LIMIT" "$NO_SSL" "$NO_AUTOSTART"
 
-    # Configure SSL/TLS for traefik templates
-    if [[ "$TEMPLATE_NAME" == *-traefik ]] && [[ "$NO_SSL" == true ]]; then
-        log_info "Configuring HTTP (no SSL)..."
-        # Change entrypoint from websecure to web
-        sed_inplace "s|entrypoints=websecure|entrypoints=web|g" "$COMPOSE_FILE"
-        # Remove TLS certresolver line
-        sed_inplace "/tls.certresolver/d" "$COMPOSE_FILE"
-        log_ok "HTTP mode configured (no SSL)"
-    fi
-
-    # Configure domain aliases for traefik templates
-    if [[ "$TEMPLATE_NAME" == *-traefik ]] && [[ -n "$ALIASES" ]]; then
-        log_info "Configuring domain aliases..."
-
-        # Convert comma-separated aliases to array
-        IFS=',' read -ra ALIAS_ARRAY <<< "$ALIASES"
-
-        if [[ "$REDIRECT_ALIASES" == true ]]; then
-            # Mode: Redirect aliases to main domain
-            # Build Host rule for aliases only
-            ALIAS_HOSTS=""
-            for domain_alias in "${ALIAS_ARRAY[@]}"; do
-                domain_alias=$(echo "$domain_alias" | xargs)  # trim whitespace
-                if [[ -n "$ALIAS_HOSTS" ]]; then
-                    ALIAS_HOSTS="$ALIAS_HOSTS || Host(\\\`$domain_alias\\\`)"
-                else
-                    ALIAS_HOSTS="Host(\\\`$domain_alias\\\`)"
-                fi
-            done
-
-            # Determine redirect scheme
-            if [[ "$NO_SSL" == true ]]; then
-                REDIRECT_SCHEME="http"
-                REDIRECT_ENTRYPOINT="web"
-            else
-                REDIRECT_SCHEME="https"
-                REDIRECT_ENTRYPOINT="websecure"
-            fi
-
-            # Build redirect labels
-            {
-                echo "      - \"traefik.http.routers.\${SITE_NAME}-redirect.rule=$ALIAS_HOSTS\""
-                echo "      - \"traefik.http.routers.\${SITE_NAME}-redirect.entrypoints=$REDIRECT_ENTRYPOINT\""
-                echo "      - \"traefik.http.routers.\${SITE_NAME}-redirect.middlewares=\${SITE_NAME}-redirect\""
-                echo "      - \"traefik.http.middlewares.\${SITE_NAME}-redirect.redirectregex.regex=^${REDIRECT_SCHEME}://[^/]+(.*)\""
-                echo "      - \"traefik.http.middlewares.\${SITE_NAME}-redirect.redirectregex.replacement=${REDIRECT_SCHEME}://\${SITE_URL}\\\${1}\""
-                echo "      - \"traefik.http.middlewares.\${SITE_NAME}-redirect.redirectregex.permanent=true\""
-                if [[ "$NO_SSL" == false ]]; then
-                    echo "      - \"traefik.http.routers.\${SITE_NAME}-redirect.tls.certresolver=le\""
-                fi
-            } > "$NEW_SITE_DIR/.redirect_labels.tmp"
-
-            # Insert redirect labels after loadbalancer line using awk (more portable than sed -i with multiline)
-            awk '/loadbalancer.server.port/ {print; while((getline line < "'"$NEW_SITE_DIR/.redirect_labels.tmp"'") > 0) print line; next} {print}' "$COMPOSE_FILE" > "$COMPOSE_FILE.tmp"
-            mv "$COMPOSE_FILE.tmp" "$COMPOSE_FILE"
-            rm -f "$NEW_SITE_DIR/.redirect_labels.tmp"
-
-            log_ok "Aliases configured with redirect to $SITE_URL"
-        else
-            # Mode: All domains serve the same content
-            # Build combined Host rule
-            ALL_HOSTS="Host(\\\`\${SITE_URL}\\\`)"
-            for domain_alias in "${ALIAS_ARRAY[@]}"; do
-                domain_alias=$(echo "$domain_alias" | xargs)  # trim whitespace
-                ALL_HOSTS="$ALL_HOSTS || Host(\\\`$domain_alias\\\`)"
-            done
-
-            # Replace the simple Host rule with combined rule
-            sed_inplace "s|Host(\\\`\${SITE_URL}\\\`)|$ALL_HOSTS|g" "$COMPOSE_FILE"
-
-            log_ok "Aliases configured (all domains serve same content)"
-        fi
-    fi
-
-    log_ok "Docker service configured (CPU: $CPU_LIMIT, Memory: $MEMORY_LIMIT)"
+# Configure aliases
+if is_traefik_template "$TEMPLATE_NAME" && [[ -n "$ALIASES" ]]; then
+    configure_aliases "$COMPOSE_FILE" "$ALIASES" "$REDIRECT_ALIASES" "$NO_SSL"
 fi
+
+# Check port conflicts for standalone templates
+check_standalone_ports "$TEMPLATE_NAME" "$COMPOSE_FILE"
+
+# Validate generated compose.yaml
+validate_compose "$NEW_SITE_DIR"
 
 # Install framework if specified
 if [[ -n "$FRAMEWORK_NAME" ]]; then
-    log_info "Installing framework '$FRAMEWORK_NAME'..."
-    APP_DIR="$NEW_SITE_DIR/app"
-    mkdir -p "$APP_DIR"
-
-    FRAMEWORK_DIR="$FRAMEWORKS_DIR/$FRAMEWORK_NAME"
-    INSTALL_SCRIPT="$FRAMEWORK_DIR/install.sh"
-
-    # Check for install.sh script
-    if [[ -x "$INSTALL_SCRIPT" ]]; then
-        # Execute framework's install script
-        "$INSTALL_SCRIPT" "$APP_DIR" "$SITE_NAME" "$SITE_URL"
-    else
-        # Fallback: simple file copy
-        cp -r "$FRAMEWORK_DIR"/* "$APP_DIR/"
-
-        # Replace placeholders in framework files
-        find "$APP_DIR" -type f \( -name "*.php" -o -name "*.js" -o -name "*.json" -o -name "*.env*" -o -name "*.yaml" -o -name "*.yml" -o -name ".htaccess" \) 2>/dev/null | while read -r file; do
-            if grep -q "SITE_NAME\|SITE_URL" "$file" 2>/dev/null; then
-                sed_inplace "s|SITE_NAME|$SITE_NAME|g; s|SITE_URL|$SITE_URL|g" "$file"
-            fi
-        done
-    fi
-
-    log_ok "Framework installed"
+    install_framework "$FRAMEWORK_NAME" "$NEW_SITE_DIR/app" "$SITE_NAME" "$SITE_URL" "$RUNTIME_VERSION"
 fi
+
+# Generate site manifest
+generate_site_manifest "$NEW_SITE_DIR" "$SITE_NAME" "$SITE_URL" "$TEMPLATE_NAME" \
+    "$RUNTIME_VERSION" "$CPU_LIMIT" "$MEMORY_LIMIT" "$NO_SSL" \
+    "$FRAMEWORK_NAME" "$ALIASES" "$REDIRECT_ALIASES" "$NO_AUTOSTART"
 
 # Disable cleanup (success)
 clear_cleanup_dir
@@ -582,45 +474,15 @@ log_ok "Site '$SITE_NAME' created successfully"
 # DATABASE
 # =============================================================================
 
-DB_PASSWORD=""
+DB_RESULT_PASSWORD=""
 if [[ "$CREATE_DB" == true ]]; then
     echo ""
     print_header "Creating database"
-
-    # Check MySQL is running
-    if docker ps --format '{{.Names}}' | grep -q "^mysql$"; then
-        # Get MySQL root password
-        MYSQL_ENV_FILE="$CONFIG_DIR/mysql/.env"
-        if [[ -f "$MYSQL_ENV_FILE" ]]; then
-            MYSQL_ROOT_PASSWORD=$(grep "^MYSQL_ROOT_PASSWORD=" "$MYSQL_ENV_FILE" | cut -d'=' -f2)
-
-            DB_NAME="${SITE_NAME//-/_}_db"
-            DB_USER="${SITE_NAME//-/_}"
-            DB_PASSWORD=$(generate_password 24)
-
-            # Create database and user
-            if docker exec mysql mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "
-                CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-                CREATE USER IF NOT EXISTS '$DB_USER'@'%' IDENTIFIED BY '$DB_PASSWORD';
-                GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'%';
-                FLUSH PRIVILEGES;
-            " 2>/dev/null; then
-                log_ok "Database '$DB_NAME' created"
-                log_ok "User '$DB_USER' created"
-            else
-                log_warn "Failed to create database (MySQL error)"
-                DB_PASSWORD=""  # Clear password on failure
-            fi
-        else
-            log_warn "MySQL .env not found, skipping database creation"
-        fi
-    else
-        log_warn "MySQL container not running, skipping database creation"
-    fi
+    create_site_database "$SITE_NAME" || true
 fi
 
 # =============================================================================
-# START
+# START & SUMMARY
 # =============================================================================
 
 echo ""
@@ -628,17 +490,18 @@ print_header "Summary"
 echo "  Location:  $NEW_SITE_DIR"
 echo "  URL:       $SITE_URL"
 echo "  Template:  $TEMPLATE_NAME"
+echo "  Version:   $RUNTIME_VERSION ($RUNTIME)"
 [[ -n "$FRAMEWORK_NAME" ]] && echo "  Framework: $FRAMEWORK_NAME"
 echo "  Resources: CPU=$CPU_LIMIT, Memory=$MEMORY_LIMIT"
 
-if [[ -n "$DB_PASSWORD" ]]; then
+if [[ -n "$DB_RESULT_PASSWORD" ]]; then
     echo ""
     echo "  Database credentials:"
     echo "    Host:     mysql"
     echo "    Port:     3306"
-    echo "    Database: ${SITE_NAME//-/_}_db"
-    echo "    User:     ${SITE_NAME//-/_}"
-    echo "    Password: $DB_PASSWORD"
+    echo "    Database: $DB_RESULT_NAME"
+    echo "    User:     $DB_RESULT_USER"
+    echo "    Password: $DB_RESULT_PASSWORD"
     echo ""
     log_warn "Save these credentials! The password won't be shown again."
 fi
@@ -650,10 +513,9 @@ if [[ "$NO_START" == true ]]; then
 else
     echo ""
     log_info "Starting container..."
-    if (cd "$NEW_SITE_DIR" && docker compose up -d); then
+    if (cd "$NEW_SITE_DIR" && docker compose up -d --pull always --build); then
         log_ok "Container started"
 
-        # Show status
         sleep 2
         echo ""
         log_info "Container status:"

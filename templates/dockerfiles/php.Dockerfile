@@ -1,8 +1,10 @@
-# FrankenPHP with PHP 8.4 (latest stable)
+# FrankenPHP with configurable PHP version
+# Available: 8.2, 8.3, 8.4
 # https://hub.docker.com/r/dunglas/frankenphp
-FROM dunglas/frankenphp:php8.4-bookworm
+ARG PHP_VERSION=8.4
+FROM dunglas/frankenphp:php${PHP_VERSION}-bookworm
 
-# Install system dependencies
+# Install system dependencies + PHP extensions in fewer layers
 RUN apt-get update && apt-get install -y \
     git \
     zip \
@@ -29,10 +31,16 @@ RUN install-php-extensions \
 # Install Composer (latest version)
 COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
 
-# Install Node.js 24 LTS
-RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+# Install Node.js (for frontend build tools)
+ARG NODE_JS_VERSION=24
+RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_JS_VERSION}.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -r -s /bin/false -d /app app \
+    && mkdir -p /app/public \
+    && chown -R app:app /app
 
 # Set working directory
 WORKDIR /app/public

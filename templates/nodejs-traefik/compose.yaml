@@ -1,13 +1,18 @@
 services:
   SERVICE_NAME:
-    build: .
+    build:
+      context: .
+      args:
+        NODE_VERSION: ${NODE_VERSION:-24}
     container_name: ${SITE_NAME}
-    restart: always
+    restart: RESTART_POLICY
     volumes:
       - ./app:/app
     environment:
-      - NODE_ENV=${NODE_ENV}
-      - PM2_APP_NAME=${PM2_APP_NAME}
+      - NODE_ENV=${NODE_ENV:-production}
+      - PM2_APP_NAME=${PM2_APP_NAME:-}
+    security_opt:
+      - no-new-privileges:true
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.${SITE_NAME}.rule=Host(`${SITE_URL}`)"
@@ -20,7 +25,7 @@ services:
       resources:
         limits:
           cpus: 'CPU_LIMIT'
-          memory: MEMORY_LIMIT
+          memory: 'MEMORY_LIMIT'
     logging:
       driver: "json-file"
       options:

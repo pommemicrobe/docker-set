@@ -5,8 +5,9 @@
 # Usage: ./scripts/site-delete.sh <site-name> [--force]
 #
 
-# Load common library
+# Load libraries
 source "$(dirname "$0")/../lib/common.sh"
+source "$(dirname "$0")/../lib/database.sh"
 
 # =============================================================================
 # HELP

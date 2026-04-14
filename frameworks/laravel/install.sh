@@ -1,83 +1,35 @@
-#!/usr/bin/env bash
-#
-# Laravel Framework Installer
-#
-# Usage: ./install.sh <app_dir> <site_name> <site_url>
-#
-# This script is called by site-create.sh when installing the Laravel framework.
-# It uses Docker to run Composer, so no local Composer installation is required.
-#
+#!/bin/sh
+# Laravel installer — runs inside the site container
+# Env: SITE_NAME, SITE_URL (provided by framework.sh)
+set -eu
 
-set -euo pipefail
+cd /app
 
-# Arguments
-APP_DIR="$1"
-SITE_NAME="$2"
-SITE_URL="$3"
+composer create-project --prefer-dist --no-interaction laravel/laravel .
 
-# Get script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Configure Laravel .env
+if [ -f .env ]; then
+    DB_NAME=$(echo "$SITE_NAME" | tr '-' '_')_db
+    DB_USER=$(echo "$SITE_NAME" | tr '-' '_')
 
-# Load common library if available
-if [[ -f "$SCRIPT_DIR/../../lib/common.sh" ]]; then
-    source "$SCRIPT_DIR/../../lib/common.sh"
-else
-    # Fallback logging functions
-    log_info()  { echo "[INFO] $1"; }
-    log_ok()    { echo "[OK] $1"; }
-    log_warn()  { echo "[WARN] $1"; }
-    log_error() { echo "[ERROR] $1" >&2; }
+    # Escape special characters for sed
+    ESCAPED_NAME=$(printf '%s' "$SITE_NAME" | sed 's/[\\&|]/\\&/g')
+    ESCAPED_URL=$(printf '%s' "$SITE_URL" | sed 's/[\\&|]/\\&/g')
+    ESCAPED_DB_NAME=$(printf '%s' "$DB_NAME" | sed 's/[\\&|]/\\&/g')
+    ESCAPED_DB_USER=$(printf '%s' "$DB_USER" | sed 's/[\\&|]/\\&/g')
+
+    sed -i "s|APP_NAME=Laravel|APP_NAME=$ESCAPED_NAME|g" .env
+    sed -i "s|APP_URL=http://localhost|APP_URL=https://$ESCAPED_URL|g" .env
+    sed -i "s|DB_CONNECTION=sqlite|DB_CONNECTION=mysql|g" .env
+    sed -i "s|# DB_HOST=127.0.0.1|DB_HOST=mysql|g" .env
+    sed -i "s|# DB_PORT=3306|DB_PORT=3306|g" .env
+    sed -i "s|# DB_DATABASE=laravel|DB_DATABASE=$ESCAPED_DB_NAME|g" .env
+    sed -i "s|# DB_USERNAME=root|DB_USERNAME=$ESCAPED_DB_USER|g" .env
+    sed -i "s|# DB_PASSWORD=|DB_PASSWORD=|g" .env
 fi
 
-# =============================================================================
-# INSTALL LARAVEL
-# =============================================================================
-
-log_info "Installing Laravel via Composer (Docker)..."
-
-# Use Docker to run Composer - no local installation required
-# The composer image runs as root, matching the container user
-if ! docker run --rm -v "$APP_DIR:/app" -w /app composer:latest \
-    create-project --prefer-dist --no-interaction laravel/laravel . 2>&1; then
-    log_error "Failed to install Laravel"
-    exit 1
-fi
-
-log_ok "Laravel installed"
-
-# =============================================================================
-# CONFIGURE
-# =============================================================================
-
-log_info "Configuring Laravel..."
-
-# Update .env file
-ENV_FILE="$APP_DIR/.env"
-if [[ -f "$ENV_FILE" ]]; then
-    # App settings
-    sed_inplace "s|APP_NAME=Laravel|APP_NAME=$SITE_NAME|g" "$ENV_FILE"
-    sed_inplace "s|APP_URL=http://localhost|APP_URL=https://$SITE_URL|g" "$ENV_FILE"
-
-    # Database settings (use docker-set MySQL container)
-    DB_NAME="${SITE_NAME//-/_}_db"
-    DB_USER="${SITE_NAME//-/_}"
-
-    sed_inplace "s|DB_CONNECTION=sqlite|DB_CONNECTION=mysql|g" "$ENV_FILE"
-    sed_inplace "s|# DB_HOST=127.0.0.1|DB_HOST=mysql|g" "$ENV_FILE"
-    sed_inplace "s|# DB_PORT=3306|DB_PORT=3306|g" "$ENV_FILE"
-    sed_inplace "s|# DB_DATABASE=laravel|DB_DATABASE=$DB_NAME|g" "$ENV_FILE"
-    sed_inplace "s|# DB_USERNAME=root|DB_USERNAME=$DB_USER|g" "$ENV_FILE"
-    sed_inplace "s|# DB_PASSWORD=|DB_PASSWORD=|g" "$ENV_FILE"
-
-    log_ok ".env configured"
-fi
-
-# =============================================================================
-# POST-INSTALL INFO
-# =============================================================================
-
-log_ok "Laravel installation complete"
-log_info "Next steps:"
-echo "  1. Update DB_PASSWORD in: $APP_DIR/.env"
+echo ""
+echo "Next steps:"
+echo "  1. Update DB_PASSWORD in .env"
 echo "  2. Run migrations: docker exec -it $SITE_NAME php artisan migrate"
-echo "  3. Visit your site: https://$SITE_URL"
+echo "  3. Visit: https://$SITE_URL"

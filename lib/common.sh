@@ -56,10 +56,21 @@ sed_inplace() {
     fi
 }
 
+# Escape a string for use in sed replacement (with | delimiter)
+sed_escape() {
+    printf '%s' "$1" | sed 's/[\\&|]/\\&/g'
+}
+
 # Generate random password using /dev/urandom
 generate_password() {
     local length="${1:-32}"
-    LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "$length" || true
+    local password
+    password=$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "$length" || true)
+    if [[ ${#password} -lt $length ]]; then
+        log_error "Failed to generate secure password"
+        return 1
+    fi
+    printf '%s' "$password"
 }
 
 # =============================================================================

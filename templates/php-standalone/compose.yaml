@@ -1,12 +1,17 @@
 services:
   SERVICE_NAME:
-    build: .
+    build:
+      context: .
+      args:
+        PHP_VERSION: ${PHP_VERSION:-8.4}
     container_name: ${SITE_NAME}
-    restart: always
+    restart: RESTART_POLICY
     volumes:
       - ./app:/app/public
     environment:
       - "SERVER_ROOT=/app/public"
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "80:80"
       - "443:443"
@@ -14,7 +19,7 @@ services:
       resources:
         limits:
           cpus: 'CPU_LIMIT'
-          memory: MEMORY_LIMIT
+          memory: 'MEMORY_LIMIT'
     logging:
       driver: "json-file"
       options:
