@@ -80,5 +80,28 @@ install_framework() {
     # Clean up
     rm -rf "$app_dir/.framework"
 
+    # Adjust compose.yaml for framework-specific server root
+    local server_root
+    server_root=$(get_framework_server_root "$framework_name")
+    if [[ -n "$server_root" ]]; then
+        local compose_file="$site_dir/compose.yaml"
+        if grep -q "SERVER_ROOT=" "$compose_file" 2>/dev/null; then
+            sed_inplace "s|SERVER_ROOT=/app/public|SERVER_ROOT=$server_root|g" "$compose_file"
+            log_ok "SERVER_ROOT adjusted to $server_root"
+        fi
+    fi
+
     log_ok "Framework '$framework_name' installed"
+}
+
+# Get the server root path for a framework (inside the container)
+# Usage: get_framework_server_root <framework_name>
+# Returns: server root path, or empty string if no adjustment needed
+get_framework_server_root() {
+    local framework_name="$1"
+    case "$framework_name" in
+        laravel)    echo "/app/public/public" ;;
+        wordpress)  echo "" ;; # WordPress copies files directly into public/
+        *)          echo "" ;;
+    esac
 }
