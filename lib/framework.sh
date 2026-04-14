@@ -6,7 +6,7 @@
 # Requires: common.sh to be sourced first
 #
 # Each framework has a self-contained install.sh that runs inside the site container.
-# Flow: copy framework dir to site/.framework/ → docker compose run with volume mount → cleanup
+# Flow: build → start container → docker cp install script → docker exec → stop
 #
 
 # =============================================================================
@@ -33,10 +33,11 @@ get_frameworks() {
 # Usage: install_framework <framework_name> <app_dir> <site_name> <site_url> <runtime_version>
 #
 # Steps:
-#   1. Build the site image
-#   2. Copy framework files to site/.framework/ (outside app volume)
-#   3. Run install.sh inside the container (mounted at /tmp/.framework/)
-#   4. Clean up site/.framework/
+#   1. Build the image and start the container
+#   2. Copy framework files into the running container via docker cp
+#   3. Execute install.sh inside the container via docker exec
+#   4. Clean up framework files inside the container
+#   5. Stop the container
 install_framework() {
     local framework_name="$1"
     local app_dir="$2"
@@ -48,6 +49,7 @@ install_framework() {
     local install_script="$framework_dir/install.sh"
     local site_dir
     site_dir="$(dirname "$app_dir")"
+    local compose_file="$site_dir/compose.yaml"
 
     if [[ ! -f "$install_script" ]]; then
         log_error "No install.sh found for framework '$framework_name'"
@@ -57,18 +59,10 @@ install_framework() {
     log_info "Installing framework '$framework_name'..."
     mkdir -p "$app_dir"
 
-    # Build image (--pull ensures latest base image for the selected version)
-    log_info "Building image..."
-    if ! (cd "$site_dir" && docker compose build --pull --quiet 2>&1); then
-        log_error "Failed to build image"
-        return 1
-    fi
-
-    # Determine the container mount point for app/ by reading the compose volume
+    # Determine the container mount point for app/
     # PHP templates: ./app:/app/public  → container_app_dir=/app/public
     # Node templates: ./app:/app        → container_app_dir=/app
     local container_app_dir="/app"
-    local compose_file="$site_dir/compose.yaml"
     if [[ -f "$compose_file" ]]; then
         local mount_target
         mount_target=$(grep -E '^\s*-\s*\./app:' "$compose_file" | sed 's/.*\.\/app://' | xargs)
@@ -77,27 +71,46 @@ install_framework() {
         fi
     fi
 
-    # Copy framework files OUTSIDE the app volume to avoid polluting it
-    # This prevents "directory is not empty" errors from frameworks like Laravel
-    cp -r "$framework_dir" "$site_dir/.framework"
-
-    # Run install script inside the container
-    # - Mount .framework/ at /tmp/.framework/ (separate from app volume)
-    # - Pass APP_DIR so the script knows where the volume is mounted
-    log_info "Running framework installer in container..."
-    if ! (cd "$site_dir" && docker compose run --rm \
-        -v "$(pwd)/.framework:/tmp/.framework:ro" \
-        -e SITE_NAME="$site_name" \
-        -e SITE_URL="$site_url" \
-        -e APP_DIR="$container_app_dir" \
-        "$site_name" sh /tmp/.framework/install.sh); then
-        log_error "Framework installation failed"
-        rm -rf "$site_dir/.framework"
+    # Build image
+    log_info "Building image..."
+    if ! (cd "$site_dir" && docker compose build --pull --quiet 2>&1); then
+        log_error "Failed to build image"
         return 1
     fi
 
-    # Clean up
-    rm -rf "$site_dir/.framework"
+    # Start the container in detached mode
+    log_info "Starting container..."
+    if ! (cd "$site_dir" && docker compose up -d 2>&1); then
+        log_error "Failed to start container"
+        return 1
+    fi
+
+    # Copy framework files into the running container
+    log_info "Copying framework files into container..."
+    if ! docker cp "$framework_dir/." "$site_name:/tmp/.framework"; then
+        log_error "Failed to copy framework files"
+        (cd "$site_dir" && docker compose down 2>/dev/null) || true
+        return 1
+    fi
+
+    # Execute the install script inside the container
+    log_info "Running framework installer in container..."
+    if ! docker exec \
+        -e SITE_NAME="$site_name" \
+        -e SITE_URL="$site_url" \
+        -e APP_DIR="$container_app_dir" \
+        "$site_name" sh /tmp/.framework/install.sh; then
+        log_error "Framework installation failed"
+        docker exec "$site_name" rm -rf /tmp/.framework 2>/dev/null || true
+        (cd "$site_dir" && docker compose down 2>/dev/null) || true
+        return 1
+    fi
+
+    # Clean up framework files inside the container
+    docker exec "$site_name" rm -rf /tmp/.framework 2>/dev/null || true
+
+    # Stop the container (site-create.sh will restart it later)
+    (cd "$site_dir" && docker compose down 2>/dev/null) || true
 
     # Adjust compose.yaml for framework-specific server root
     local server_root
