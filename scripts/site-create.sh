@@ -418,6 +418,17 @@ if is_traefik_template "$TEMPLATE_NAME"; then
     ensure_web_network
 fi
 
+# Check port conflicts for standalone templates (early exit)
+if [[ "$NO_START" == false ]]; then
+    COMPOSE_TEMPLATE="$TEMPLATES_DIR/$TEMPLATE_NAME/compose.yaml"
+    if ! check_standalone_ports "$TEMPLATE_NAME" "$COMPOSE_TEMPLATE"; then
+        log_error "Required ports are already in use"
+        log_info "Use --no-start to create the site without starting it"
+        log_info "Or free the ports and try again"
+        exit 1
+    fi
+fi
+
 log_ok "Parameters validated"
 
 # =============================================================================
@@ -448,9 +459,6 @@ configure_compose "$COMPOSE_FILE" "$SITE_NAME" "$CPU_LIMIT" "$MEMORY_LIMIT" "$NO
 if is_traefik_template "$TEMPLATE_NAME" && [[ -n "$ALIASES" ]]; then
     configure_aliases "$COMPOSE_FILE" "$ALIASES" "$REDIRECT_ALIASES" "$NO_SSL"
 fi
-
-# Check port conflicts for standalone templates
-check_standalone_ports "$TEMPLATE_NAME" "$COMPOSE_FILE"
 
 # Validate generated compose.yaml
 validate_compose "$NEW_SITE_DIR"

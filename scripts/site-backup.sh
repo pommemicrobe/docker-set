@@ -108,23 +108,17 @@ if [[ "$WITH_DB" == true ]]; then
 
     DB_NAME="${SITE_NAME//-/_}_db"
 
-    if require_mysql; then
-        ROOT_PASSWORD=$(get_mysql_root_password) || { log_warn "Skipping database backup"; }
-
-        if [[ -n "${ROOT_PASSWORD:-}" ]]; then
-            if database_exists "$DB_NAME" "$ROOT_PASSWORD"; then
-                if docker exec mysql mysqldump -u root -p"$ROOT_PASSWORD" \
-                    --single-transaction "$DB_NAME" > "$BACKUP_DIR/database.sql" 2>/dev/null; then
-                    log_ok "Database '$DB_NAME' backed up"
-                else
-                    log_warn "Failed to dump database"
-                fi
-            else
-                log_warn "Database '$DB_NAME' does not exist, skipping"
-            fi
-        fi
-    else
+    if ! require_mysql; then
         log_warn "Skipping database backup"
+    elif ! ROOT_PASSWORD=$(get_mysql_root_password); then
+        log_warn "Skipping database backup (no MySQL credentials)"
+    elif ! database_exists "$DB_NAME" "$ROOT_PASSWORD"; then
+        log_warn "Database '$DB_NAME' does not exist, skipping"
+    elif docker exec mysql mysqldump -u root -p"$ROOT_PASSWORD" \
+        --single-transaction "$DB_NAME" > "$BACKUP_DIR/database.sql" 2>/dev/null; then
+        log_ok "Database '$DB_NAME' backed up"
+    else
+        log_warn "Failed to dump database"
     fi
 fi
 

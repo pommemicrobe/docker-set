@@ -33,7 +33,7 @@ setup_traefik() {
 
     # Ask for Let's Encrypt email
     local current_email
-    current_email=$(grep -oP 'email:\s*"\K[^"]+' "$traefik_dir/traefik.yaml" 2>/dev/null || echo "ACME_EMAIL")
+    current_email=$(grep 'email:' "$traefik_dir/traefik.yaml" 2>/dev/null | sed 's/.*email:[[:space:]]*"\{0,1\}\([^"]*\)"\{0,1\}/\1/' || echo "ACME_EMAIL")
 
     if [[ "$current_email" == "ACME_EMAIL" ]]; then
         local email
@@ -44,7 +44,9 @@ setup_traefik() {
             exit 1
         fi
 
-        sed_inplace "s|ACME_EMAIL|$email|g" "$traefik_dir/traefik.yaml"
+        local escaped_email
+        escaped_email=$(sed_escape "$email")
+        sed_inplace "s|ACME_EMAIL|$escaped_email|g" "$traefik_dir/traefik.yaml"
         log_ok "Email configured: $email"
     else
         log_info "Current email: $current_email"
@@ -91,7 +93,9 @@ setup_mysql() {
         fi
     fi
 
-    sed_inplace "s|GENERATED_PASSWORD|$password|g" "$mysql_dir/.env"
+    local escaped_password
+    escaped_password=$(sed_escape "$password")
+    sed_inplace "s|GENERATED_PASSWORD|$escaped_password|g" "$mysql_dir/.env"
     log_ok "Password configured in .env"
 
     # Create data directory

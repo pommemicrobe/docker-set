@@ -251,16 +251,6 @@ print_header() {
     echo ""
 }
 
-# List available templates
-list_templates() {
-    log_info "Available templates:"
-    for template in "$TEMPLATES_DIR"/*/; do
-        if [[ -d "$template" ]]; then
-            echo "  - $(basename "$template")"
-        fi
-    done
-}
-
 # List existing sites
 list_sites() {
     log_info "Existing sites:"

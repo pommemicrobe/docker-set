@@ -164,24 +164,22 @@ if [[ "$HAS_DB_DUMP" == true ]]; then
 
     DB_NAME="${SITE_NAME//-/_}_db"
 
-    if require_mysql; then
-        ROOT_PASSWORD=$(get_mysql_root_password) || { log_warn "Skipping database restore"; }
-
-        if [[ -n "${ROOT_PASSWORD:-}" ]]; then
-            # Create database if it doesn't exist
-            docker exec mysql mysql -u root -p"$ROOT_PASSWORD" -e \
-                "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null
-
-            # Import dump
-            if docker exec -i mysql mysql -u root -p"$ROOT_PASSWORD" "$DB_NAME" \
-                < "$BACKUP_PARENT/database.sql" 2>/dev/null; then
-                log_ok "Database '$DB_NAME' restored"
-            else
-                log_warn "Failed to restore database"
-            fi
-        fi
-    else
+    if ! require_mysql; then
         log_warn "Skipping database restore"
+    elif ! ROOT_PASSWORD=$(get_mysql_root_password); then
+        log_warn "Skipping database restore (no MySQL credentials)"
+    else
+        # Create database if it doesn't exist
+        docker exec mysql mysql -u root -p"$ROOT_PASSWORD" -e \
+            "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null
+
+        # Import dump
+        if docker exec -i mysql mysql -u root -p"$ROOT_PASSWORD" "$DB_NAME" \
+            < "$BACKUP_PARENT/database.sql" 2>/dev/null; then
+            log_ok "Database '$DB_NAME' restored"
+        else
+            log_warn "Failed to restore database"
+        fi
     fi
 fi
 

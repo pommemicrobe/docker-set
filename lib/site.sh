@@ -168,13 +168,13 @@ validate_aliases() {
     return 0
 }
 
-# Detect port conflicts for standalone templates
+# Detect if a port is already being listened on
 # Usage: check_port_conflict <port>
 check_port_conflict() {
     local port="$1"
 
     if command -v lsof &>/dev/null; then
-        if lsof -i :"$port" &>/dev/null; then
+        if lsof -iTCP:"$port" -sTCP:LISTEN -P -n &>/dev/null; then
             log_warn "Port $port is already in use"
             return 1
         fi
@@ -190,6 +190,7 @@ check_port_conflict() {
 
 # Check for port conflicts on standalone templates
 # Usage: check_standalone_ports <template_name> <compose_file>
+# Returns: 0 if no conflict (or not standalone), 1 if ports are in use
 check_standalone_ports() {
     local template="$1"
     local compose_file="$2"
@@ -211,7 +212,7 @@ check_standalone_ports() {
     done
 
     if [[ "$has_conflict" == true ]]; then
-        log_warn "Some ports are already in use. The container may fail to start."
+        return 1
     fi
 
     return 0

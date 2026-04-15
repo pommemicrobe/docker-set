@@ -145,8 +145,8 @@ services:
       - "traefik.http.routers.default-site.priority=1"
       - "traefik.http.routers.default-site.entrypoints=$entrypoint"
       - "traefik.http.routers.default-site.middlewares=default-redirect"
-      - "traefik.http.middlewares.default-redirect.redirectregex.regex=^https?://.*"
-      - "traefik.http.middlewares.default-redirect.redirectregex.replacement=$redirect_url"
+      - "traefik.http.middlewares.default-redirect.redirectregex.regex=^https?://[^/]+(.*)"
+      - "traefik.http.middlewares.default-redirect.redirectregex.replacement=${redirect_url}\${1}"
       - "traefik.http.middlewares.default-redirect.redirectregex.permanent=false"
       - "traefik.http.services.default-site.loadbalancer.server.port=80"
     networks:
