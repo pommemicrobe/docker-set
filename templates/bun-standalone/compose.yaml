@@ -1,0 +1,27 @@
+services:
+  SERVICE_NAME:
+    build:
+      context: .
+      args:
+        BUN_VERSION: ${BUN_VERSION:-1.3}
+    container_name: ${SITE_NAME}
+    restart: RESTART_POLICY
+    volumes:
+      - ./app:/app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: 'CPU_LIMIT'
+          memory: 'MEMORY_LIMIT'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"

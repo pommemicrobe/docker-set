@@ -84,7 +84,7 @@ done
 echo ""
 echo -e "${YELLOW}Shared Dockerfiles${NC}"
 
-for df in php.Dockerfile nodejs.Dockerfile; do
+for df in php.Dockerfile nodejs.Dockerfile bun.Dockerfile; do
     if [[ -f "$PROJECT_ROOT/templates/dockerfiles/$df" ]]; then
         pass "$df"
     else
@@ -121,6 +121,12 @@ if grep -q "^ARG NODE_VERSION=" "$PROJECT_ROOT/templates/dockerfiles/nodejs.Dock
     pass "nodejs.Dockerfile has NODE_VERSION ARG"
 else
     fail "nodejs.Dockerfile missing NODE_VERSION ARG"
+fi
+
+if grep -q "^ARG BUN_VERSION=" "$PROJECT_ROOT/templates/dockerfiles/bun.Dockerfile"; then
+    pass "bun.Dockerfile has BUN_VERSION ARG"
+else
+    fail "bun.Dockerfile missing BUN_VERSION ARG"
 fi
 
 # =============================================================================
@@ -171,6 +177,18 @@ for template in "$PROJECT_ROOT"/templates/nodejs-*/; do
         pass "$name has NODE_VERSION"
     else
         fail "$name missing NODE_VERSION"
+    fi
+done
+
+for template in "$PROJECT_ROOT"/templates/bun-*/; do
+    [[ -d "$template" ]] || continue
+    name=$(basename "$template")
+    env="$template/.env.dist"
+
+    if grep -q "BUN_VERSION=" "$env" 2>/dev/null; then
+        pass "$name has BUN_VERSION"
+    else
+        fail "$name missing BUN_VERSION"
     fi
 done
 

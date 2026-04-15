@@ -6,7 +6,11 @@
 # Requires: common.sh, site.sh to be sourced first
 #
 # Each framework has a self-contained install.sh that runs inside the site container.
-# Flow: build image → start container → docker cp + docker exec → cleanup
+# Flow: build image → docker run temp container (with sleep) → docker cp + exec → rm
+#
+# We always use a temporary container with `sleep` instead of the image's default CMD
+# because the CMD typically expects project files (package.json, etc.) that don't
+# exist yet. This also avoids port binding conflicts on standalone templates.
 #
 
 # =============================================================================
@@ -29,32 +33,14 @@ get_frameworks() {
 # FRAMEWORK INSTALLATION
 # =============================================================================
 
-# Check if compose ports are available
-# Usage: _has_port_conflict <compose_file>
-# Returns: 0 if a conflict exists, 1 if all ports are free
-_has_port_conflict() {
-    local compose_file="$1"
-
-    local ports
-    ports=$(grep -Eo '"([0-9]+):[0-9]+"' "$compose_file" 2>/dev/null | grep -Eo '^"[0-9]+' | tr -d '"')
-
-    for port in $ports; do
-        if ! check_port_conflict "$port" >/dev/null 2>&1; then
-            return 0
-        fi
-    done
-
-    return 1
-}
-
 # Install a framework into a site's app directory
 # Usage: install_framework <framework_name> <app_dir> <site_name> <site_url> <runtime_version>
 #
 # Steps:
 #   1. Build the image via docker compose build
-#   2. Check ports: if free → docker compose up; if busy → docker run (no ports)
+#   2. Start a temporary container with `sleep` (no ports, overrides CMD)
 #   3. docker cp framework files + docker exec install.sh
-#   4. Clean up container
+#   4. Remove the temporary container
 install_framework() {
     local framework_name="$1"
     local app_dir="$2"
@@ -78,7 +64,7 @@ install_framework() {
 
     # Determine the container mount point for app/
     # PHP templates: ./app:/app/public  → container_app_dir=/app/public
-    # Node templates: ./app:/app        → container_app_dir=/app
+    # Node/Bun templates: ./app:/app    → container_app_dir=/app
     local container_app_dir="/app"
     if [[ -f "$compose_file" ]]; then
         local mount_target
@@ -95,58 +81,39 @@ install_framework() {
         return 1
     fi
 
-    # Start the container
-    # Check if published ports are already in use (standalone templates)
-    # If ports are free → docker compose up
-    # If ports are busy → docker run without port bindings
-    local use_tmp_container=false
-    local tmp_container="${site_name}-framework-install"
-
-    log_info "Starting container for installation..."
-    if _has_port_conflict "$compose_file"; then
-        log_warn "Ports already in use, starting temporary container without port bindings..."
-        use_tmp_container=true
-
-        local image_name
-        image_name=$(cd "$site_dir" && docker compose config --images 2>/dev/null | head -1)
-        if [[ -z "$image_name" ]]; then
-            log_error "Could not determine built image name"
-            return 1
-        fi
-
-        local abs_app_dir
-        abs_app_dir=$(cd "$app_dir" && pwd)
-
-        if ! docker run -d \
-            --name "$tmp_container" \
-            -v "$abs_app_dir:$container_app_dir" \
-            "$image_name" sleep 3600 >/dev/null; then
-            log_error "Failed to start temporary container"
-            return 1
-        fi
-    else
-        if ! (cd "$site_dir" && docker compose up -d 2>&1); then
-            log_error "Failed to start container"
-            return 1
-        fi
+    # Get the built image name
+    local image_name
+    image_name=$(cd "$site_dir" && docker compose config --images 2>/dev/null | head -1)
+    if [[ -z "$image_name" ]]; then
+        log_error "Could not determine built image name"
+        return 1
     fi
 
-    # Determine which container name to use for cp/exec
-    local target_container="$site_name"
-    if [[ "$use_tmp_container" == true ]]; then
-        target_container="$tmp_container"
+    # Start a temporary container with `sleep` to override the image's default CMD
+    # This avoids: (a) CMD failing on missing project files, (b) port binding conflicts
+    local tmp_container="${site_name}-framework-install"
+    local abs_app_dir
+    abs_app_dir=$(cd "$app_dir" && pwd)
+
+    log_info "Starting temporary container..."
+    if ! docker run -d \
+        --name "$tmp_container" \
+        -v "$abs_app_dir:$container_app_dir" \
+        "$image_name" sleep 3600 >/dev/null; then
+        log_error "Failed to start temporary container"
+        return 1
     fi
 
     # Copy framework files into the container
     log_info "Copying framework files into container..."
-    if ! docker cp "$framework_dir/." "$target_container:/tmp/.framework"; then
+    if ! docker cp "$framework_dir/." "$tmp_container:/tmp/.framework"; then
         log_error "Failed to copy framework files"
-        _framework_cleanup "$use_tmp_container" "$tmp_container" "$site_dir"
+        docker rm -f "$tmp_container" >/dev/null 2>&1 || true
         return 1
     fi
 
     # Clean the app directory (base images may include default files like index.php)
-    docker exec "$target_container" sh -c "rm -rf ${container_app_dir:?}/* ${container_app_dir}/.[!.]* 2>/dev/null || true"
+    docker exec "$tmp_container" sh -c "rm -rf ${container_app_dir:?}/* ${container_app_dir}/.[!.]* 2>/dev/null || true"
 
     # Execute the install script
     log_info "Running framework installer in container..."
@@ -154,14 +121,14 @@ install_framework() {
         -e SITE_NAME="$site_name" \
         -e SITE_URL="$site_url" \
         -e APP_DIR="$container_app_dir" \
-        "$target_container" sh /tmp/.framework/install.sh; then
+        "$tmp_container" sh /tmp/.framework/install.sh; then
         log_error "Framework installation failed"
-        _framework_cleanup "$use_tmp_container" "$tmp_container" "$site_dir"
+        docker rm -f "$tmp_container" >/dev/null 2>&1 || true
         return 1
     fi
 
-    # Clean up container
-    _framework_cleanup "$use_tmp_container" "$tmp_container" "$site_dir"
+    # Remove the temporary container
+    docker rm -f "$tmp_container" >/dev/null 2>&1 || true
 
     # Adjust compose.yaml for framework-specific server root
     local server_root
@@ -174,20 +141,6 @@ install_framework() {
     fi
 
     log_ok "Framework '$framework_name' installed"
-}
-
-# Clean up after framework installation
-# Usage: _framework_cleanup <use_tmp_container> <tmp_container_name> <site_dir>
-_framework_cleanup() {
-    local use_tmp="$1"
-    local tmp_name="$2"
-    local site_dir="$3"
-
-    if [[ "$use_tmp" == true ]]; then
-        docker rm -f "$tmp_name" >/dev/null 2>&1 || true
-    else
-        (cd "$site_dir" && docker compose down 2>/dev/null) || true
-    fi
 }
 
 # Get the server root path for a framework (inside the container)

@@ -32,6 +32,7 @@ show_help() {
     echo "  --memory <size>       Memory limit (e.g., 256M, 512M, 1G). Default: 512M"
     echo "  --php-version <ver>   PHP version (${PHP_VERSIONS[*]}). Default: $DEFAULT_PHP_VERSION"
     echo "  --node-version <ver>  Node.js version (${NODE_VERSIONS[*]}). Default: $DEFAULT_NODE_VERSION"
+    echo "  --bun-version <ver>   Bun version (${BUN_VERSIONS[*]}). Default: $DEFAULT_BUN_VERSION"
     echo "  --framework <name>    Framework to install (optional)"
     echo "  --with-db             Create database user for this site"
     echo "  --no-ssl              Use HTTP instead of HTTPS (for local development)"
@@ -51,6 +52,7 @@ show_help() {
     echo "  $0 my-app app.com php-traefik --with-db              # With database"
     echo "  $0 my-app app.com php-traefik --php-version 8.3      # PHP 8.3"
     echo "  $0 my-app app.com nodejs-traefik --node-version 22   # Node 22"
+    echo "  $0 my-api api.com bun-traefik --framework elysia     # Bun + Elysia"
     echo "  $0 my-app app.com php-traefik --framework laravel --with-db"
     echo "  $0 my-app app.local php-traefik --no-ssl             # Local dev"
     echo ""
@@ -174,6 +176,22 @@ interactive_mode() {
                 RUNTIME_VERSION="$DEFAULT_NODE_VERSION"
             fi
             log_ok "Node.js version: $RUNTIME_VERSION"
+            ;;
+        bun)
+            echo ""
+            log_info "Available Bun versions:"
+            for i in "${!BUN_VERSIONS[@]}"; do
+                local marker=""
+                [[ "${BUN_VERSIONS[$i]}" == "$DEFAULT_BUN_VERSION" ]] && marker=" (default)"
+                echo "  $((i + 1))) ${BUN_VERSIONS[$i]}$marker"
+            done
+            read -p "$(echo -e "${YELLOW}?${NC} Select Bun version [1-${#BUN_VERSIONS[@]}] (default: 1): ")" choice
+            if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#BUN_VERSIONS[@]} ]]; then
+                RUNTIME_VERSION="${BUN_VERSIONS[$((choice - 1))]}"
+            else
+                RUNTIME_VERSION="$DEFAULT_BUN_VERSION"
+            fi
+            log_ok "Bun version: $RUNTIME_VERSION"
             ;;
     esac
 
@@ -320,6 +338,10 @@ while [[ $# -gt 0 ]]; do
             RUNTIME_VERSION="$2"
             shift 2
             ;;
+        --bun-version)
+            RUNTIME_VERSION="$2"
+            shift 2
+            ;;
         --framework)
             FRAMEWORK_NAME="$2"
             shift 2
@@ -375,6 +397,7 @@ if [[ -z "$RUNTIME_VERSION" ]]; then
     case "$RUNTIME" in
         php)    RUNTIME_VERSION="$DEFAULT_PHP_VERSION" ;;
         nodejs) RUNTIME_VERSION="$DEFAULT_NODE_VERSION" ;;
+        bun)    RUNTIME_VERSION="$DEFAULT_BUN_VERSION" ;;
     esac
 fi
 
