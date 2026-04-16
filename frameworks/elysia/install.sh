@@ -20,7 +20,7 @@ cat > package.json <<EOF
   },
   "devDependencies": {
     "bun-types": "^1.3.0",
-    "typescript": "^5.9.0"
+    "typescript": "^6.0.0"
   }
 }
 EOF
