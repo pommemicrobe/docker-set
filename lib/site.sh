@@ -19,6 +19,9 @@ DEFAULT_NODE_VERSION="24"
 BUN_VERSIONS=("1.3" "1")
 DEFAULT_BUN_VERSION="1.3"
 
+GO_VERSIONS=("1.24" "1.23")
+DEFAULT_GO_VERSION="1.24"
+
 # =============================================================================
 # TEMPLATE HELPERS
 # =============================================================================
@@ -31,6 +34,7 @@ get_template_runtime() {
         php-*)    echo "php" ;;
         nodejs-*) echo "nodejs" ;;
         bun-*)    echo "bun" ;;
+        go-*)     echo "go" ;;
         *)        echo "unknown" ;;
     esac
 }
@@ -74,6 +78,7 @@ validate_version() {
         php)    versions=("${PHP_VERSIONS[@]}") ;;
         nodejs) versions=("${NODE_VERSIONS[@]}") ;;
         bun)    versions=("${BUN_VERSIONS[@]}") ;;
+        go)     versions=("${GO_VERSIONS[@]}") ;;
         *)
             log_error "Unknown runtime: $runtime"
             return 1
@@ -283,6 +288,7 @@ configure_env() {
         php)    sed_inplace "s|PHP_VERSION=.*|PHP_VERSION=$version|g" "$env_file" ;;
         nodejs) sed_inplace "s|NODE_VERSION=.*|NODE_VERSION=$version|g" "$env_file" ;;
         bun)    sed_inplace "s|BUN_VERSION=.*|BUN_VERSION=$version|g" "$env_file" ;;
+        go)     sed_inplace "s|GO_VERSION=.*|GO_VERSION=$version|g" "$env_file" ;;
     esac
 
     log_ok "Environment configured"

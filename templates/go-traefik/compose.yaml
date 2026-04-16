@@ -1,0 +1,37 @@
+services:
+  SERVICE_NAME:
+    build:
+      context: .
+      args:
+        GO_VERSION: ${GO_VERSION:-1.24}
+    container_name: ${SITE_NAME}
+    restart: RESTART_POLICY
+    volumes:
+      - ./app:/app
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.${SITE_NAME}.rule=Host(`${SITE_URL}`)"
+      - "traefik.http.routers.${SITE_NAME}.entrypoints=websecure"
+      - "traefik.http.routers.${SITE_NAME}.tls.certresolver=le"
+      - "traefik.http.services.${SITE_NAME}.loadbalancer.server.port=8080"
+    networks:
+      - web
+    deploy:
+      resources:
+        limits:
+          cpus: 'CPU_LIMIT'
+          memory: 'MEMORY_LIMIT'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+networks:
+  web:
+    external: true

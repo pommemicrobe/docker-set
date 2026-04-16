@@ -17,16 +17,46 @@
 # FRAMEWORK DISCOVERY
 # =============================================================================
 
-# Get available frameworks
-# Usage: get_frameworks
+# Get available frameworks, optionally filtered by runtime
+# Usage: get_frameworks [runtime]
 get_frameworks() {
+    local filter_runtime="${1:-}"
     local frameworks=()
     for dir in "$FRAMEWORKS_DIR"/*/; do
         if [[ -d "$dir" && -n "$(ls -A "$dir" 2>/dev/null)" ]]; then
-            frameworks+=("$(basename "$dir")")
+            local name
+            name="$(basename "$dir")"
+            # Filter by runtime if specified and runtime.txt exists
+            if [[ -n "$filter_runtime" && -f "$dir/runtime.txt" ]]; then
+                local fw_runtime
+                fw_runtime=$(head -1 "$dir/runtime.txt" | tr -d '[:space:]')
+                [[ "$fw_runtime" != "$filter_runtime" ]] && continue
+            fi
+            frameworks+=("$name")
         fi
     done
     echo "${frameworks[@]}"
+}
+
+# Check if a framework is compatible with a runtime
+# Usage: validate_framework_runtime <framework_name> <runtime>
+validate_framework_runtime() {
+    local framework_name="$1"
+    local runtime="$2"
+    local runtime_file="$FRAMEWORKS_DIR/$framework_name/runtime.txt"
+
+    if [[ ! -f "$runtime_file" ]]; then
+        return 0  # No restriction if no runtime.txt
+    fi
+
+    local fw_runtime
+    fw_runtime=$(head -1 "$runtime_file" | tr -d '[:space:]')
+    if [[ "$fw_runtime" != "$runtime" ]]; then
+        log_error "Framework '$framework_name' requires '$fw_runtime' runtime, but template uses '$runtime'"
+        return 1
+    fi
+
+    return 0
 }
 
 # =============================================================================

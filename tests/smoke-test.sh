@@ -84,7 +84,7 @@ done
 echo ""
 echo -e "${YELLOW}Shared Dockerfiles${NC}"
 
-for df in php.Dockerfile nodejs.Dockerfile bun.Dockerfile; do
+for df in php.Dockerfile nodejs.Dockerfile bun.Dockerfile go.Dockerfile; do
     if [[ -f "$PROJECT_ROOT/templates/dockerfiles/$df" ]]; then
         pass "$df"
     else
@@ -127,6 +127,12 @@ if grep -q "^ARG BUN_VERSION=" "$PROJECT_ROOT/templates/dockerfiles/bun.Dockerfi
     pass "bun.Dockerfile has BUN_VERSION ARG"
 else
     fail "bun.Dockerfile missing BUN_VERSION ARG"
+fi
+
+if grep -q "^ARG GO_VERSION=" "$PROJECT_ROOT/templates/dockerfiles/go.Dockerfile"; then
+    pass "go.Dockerfile has GO_VERSION ARG"
+else
+    fail "go.Dockerfile missing GO_VERSION ARG"
 fi
 
 # =============================================================================
@@ -192,6 +198,18 @@ for template in "$PROJECT_ROOT"/templates/bun-*/; do
     fi
 done
 
+for template in "$PROJECT_ROOT"/templates/go-*/; do
+    [[ -d "$template" ]] || continue
+    name=$(basename "$template")
+    env="$template/.env.dist"
+
+    if grep -q "GO_VERSION=" "$env" 2>/dev/null; then
+        pass "$name has GO_VERSION"
+    else
+        fail "$name missing GO_VERSION"
+    fi
+done
+
 # =============================================================================
 # TEST: No dead references
 # =============================================================================
@@ -247,6 +265,27 @@ for script in "$PROJECT_ROOT"/frameworks/*/install.sh; do
         pass "$name"
     else
         fail "$name"
+    fi
+done
+
+# =============================================================================
+# TEST: Frameworks have runtime.txt
+# =============================================================================
+echo ""
+echo -e "${YELLOW}Frameworks have runtime.txt${NC}"
+
+for fw_dir in "$PROJECT_ROOT"/frameworks/*/; do
+    [[ -d "$fw_dir" ]] || continue
+    name=$(basename "$fw_dir")
+    if [[ -f "$fw_dir/runtime.txt" ]]; then
+        runtime=$(head -1 "$fw_dir/runtime.txt" | tr -d '[:space:]')
+        if [[ "$runtime" =~ ^(php|nodejs|bun|go)$ ]]; then
+            pass "$name runtime.txt ($runtime)"
+        else
+            fail "$name runtime.txt has invalid runtime: $runtime"
+        fi
+    else
+        fail "$name missing runtime.txt"
     fi
 done
 

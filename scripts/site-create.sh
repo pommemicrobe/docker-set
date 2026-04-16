@@ -33,6 +33,7 @@ show_help() {
     echo "  --php-version <ver>   PHP version (${PHP_VERSIONS[*]}). Default: $DEFAULT_PHP_VERSION"
     echo "  --node-version <ver>  Node.js version (${NODE_VERSIONS[*]}). Default: $DEFAULT_NODE_VERSION"
     echo "  --bun-version <ver>   Bun version (${BUN_VERSIONS[*]}). Default: $DEFAULT_BUN_VERSION"
+    echo "  --go-version <ver>    Go version (${GO_VERSIONS[*]}). Default: $DEFAULT_GO_VERSION"
     echo "  --framework <name>    Framework to install (optional)"
     echo "  --with-db             Create database user for this site"
     echo "  --no-ssl              Use HTTP instead of HTTPS (for local development)"
@@ -53,6 +54,7 @@ show_help() {
     echo "  $0 my-app app.com php-traefik --php-version 8.3      # PHP 8.3"
     echo "  $0 my-app app.com nodejs-traefik --node-version 22   # Node 22"
     echo "  $0 my-api api.com bun-traefik --framework elysia     # Bun + Elysia"
+    echo "  $0 my-api api.com go-traefik --go-version 1.23       # Go 1.23"
     echo "  $0 my-app app.com php-traefik --framework laravel --with-db"
     echo "  $0 my-app app.local php-traefik --no-ssl             # Local dev"
     echo ""
@@ -193,11 +195,27 @@ interactive_mode() {
             fi
             log_ok "Bun version: $RUNTIME_VERSION"
             ;;
+        go)
+            echo ""
+            log_info "Available Go versions:"
+            for i in "${!GO_VERSIONS[@]}"; do
+                local marker=""
+                [[ "${GO_VERSIONS[$i]}" == "$DEFAULT_GO_VERSION" ]] && marker=" (default)"
+                echo "  $((i + 1))) ${GO_VERSIONS[$i]}$marker"
+            done
+            read -p "$(echo -e "${YELLOW}?${NC} Select Go version [1-${#GO_VERSIONS[@]}] (default: 1): ")" choice
+            if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#GO_VERSIONS[@]} ]]; then
+                RUNTIME_VERSION="${GO_VERSIONS[$((choice - 1))]}"
+            else
+                RUNTIME_VERSION="$DEFAULT_GO_VERSION"
+            fi
+            log_ok "Go version: $RUNTIME_VERSION"
+            ;;
     esac
 
-    # Framework selection
+    # Framework selection (filtered by runtime)
     FRAMEWORK_NAME=""
-    local frameworks=($(get_frameworks))
+    local frameworks=($(get_frameworks "$runtime"))
     if [[ ${#frameworks[@]} -gt 0 ]]; then
         echo ""
         log_info "Available frameworks (optional):"
@@ -342,6 +360,10 @@ while [[ $# -gt 0 ]]; do
             RUNTIME_VERSION="$2"
             shift 2
             ;;
+        --go-version)
+            RUNTIME_VERSION="$2"
+            shift 2
+            ;;
         --framework)
             FRAMEWORK_NAME="$2"
             shift 2
@@ -398,6 +420,7 @@ if [[ -z "$RUNTIME_VERSION" ]]; then
         php)    RUNTIME_VERSION="$DEFAULT_PHP_VERSION" ;;
         nodejs) RUNTIME_VERSION="$DEFAULT_NODE_VERSION" ;;
         bun)    RUNTIME_VERSION="$DEFAULT_BUN_VERSION" ;;
+        go)     RUNTIME_VERSION="$DEFAULT_GO_VERSION" ;;
     esac
 fi
 
@@ -431,6 +454,9 @@ if [[ -n "$FRAMEWORK_NAME" ]]; then
     fi
     if [[ -z "$(ls -A "$FRAMEWORKS_DIR/$FRAMEWORK_NAME" 2>/dev/null)" ]]; then
         log_error "Framework '$FRAMEWORK_NAME' is empty"
+        exit 1
+    fi
+    if ! validate_framework_runtime "$FRAMEWORK_NAME" "$RUNTIME"; then
         exit 1
     fi
 fi
