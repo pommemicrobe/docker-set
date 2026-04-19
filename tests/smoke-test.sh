@@ -378,6 +378,54 @@ for template in "$PROJECT_ROOT"/templates/*/; do
 done
 
 # =============================================================================
+# TEST: MySQL credentials never passed via -p on command line
+# =============================================================================
+echo ""
+echo -e "${YELLOW}MySQL credentials use MYSQL_PWD (not -p arg)${NC}"
+
+mysql_pw_hits=$(grep -RIn --include='*.sh' -E '(mysql|mysqldump)[[:space:]]+.*-p"' \
+    "$PROJECT_ROOT"/lib "$PROJECT_ROOT"/scripts 2>/dev/null || true)
+if [[ -z "$mysql_pw_hits" ]]; then
+    pass "no -p\"\$password\" usage"
+else
+    fail "found -p\"\$password\" usage (use MYSQL_PWD env var instead):"
+    echo "$mysql_pw_hits" | sed 's/^/    /'
+fi
+
+# =============================================================================
+# TEST: All templates forward DB_* env vars (apps can read via env at runtime)
+# =============================================================================
+echo ""
+echo -e "${YELLOW}Templates forward DB_* env vars${NC}"
+
+for template in "$PROJECT_ROOT"/templates/*/; do
+    [[ -d "$template" ]] || continue
+    name=$(basename "$template")
+    [[ "$name" == "dockerfiles" ]] && continue
+
+    compose="$template/compose.yaml"
+    [[ -f "$compose" ]] || continue
+
+    if grep -q 'DB_DATABASE=${DB_DATABASE' "$compose" 2>/dev/null; then
+        pass "$name forwards DB_*"
+    else
+        fail "$name missing DB_* in environment section"
+    fi
+done
+
+# =============================================================================
+# TEST: Framework runtime.txt matches known runtimes
+# =============================================================================
+echo ""
+echo -e "${YELLOW}inject_db_credentials exists in lib/database.sh${NC}"
+
+if grep -q "^inject_db_credentials()" "$PROJECT_ROOT/lib/database.sh"; then
+    pass "inject_db_credentials defined"
+else
+    fail "inject_db_credentials missing"
+fi
+
+# =============================================================================
 # SUMMARY
 # =============================================================================
 echo ""

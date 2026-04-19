@@ -74,15 +74,25 @@ docker exec -it <name> pm2 restart all
 
 ## Environment Variables
 
-Add environment variables to your `.env` file or in `ecosystem.config.js`:
+The Node.js template forwards these from the site's `.env` to the container:
+
+| Variable | Source | Default |
+|----------|--------|---------|
+| `NODE_ENV` | site `.env` | `production` |
+| `DB_HOST` | site `.env` | `mysql` |
+| `DB_DATABASE` | site `.env` (auto-filled with `--with-db`) | (empty) |
+| `DB_USERNAME` | site `.env` | (empty) |
+| `DB_PASSWORD` | site `.env` | (empty) |
+
+Access them in code via `process.env.DB_HOST` etc. Add custom variables in
+`ecosystem.config.js`:
 
 ```javascript
 // ecosystem.config.js
 env: {
   NODE_ENV: 'production',
   PORT: 3000,
-  DATABASE_URL: 'your-database-url',
-  // Add more variables here
+  // Custom variables here
 }
 ```
 

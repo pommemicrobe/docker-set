@@ -114,7 +114,7 @@ if [[ "$WITH_DB" == true ]]; then
         log_warn "Skipping database backup (no MySQL credentials)"
     elif ! database_exists "$DB_NAME" "$ROOT_PASSWORD"; then
         log_warn "Database '$DB_NAME' does not exist, skipping"
-    elif docker exec mysql mysqldump -u root -p"$ROOT_PASSWORD" \
+    elif docker exec -e MYSQL_PWD="$ROOT_PASSWORD" mysql mysqldump -u root \
         --single-transaction "$DB_NAME" > "$BACKUP_DIR/database.sql" 2>/dev/null; then
         log_ok "Database '$DB_NAME' backed up"
     else
@@ -127,6 +127,9 @@ log_info "Creating archive..."
 (cd "$BACKUPS_DIR" && tar -czf "${BACKUP_NAME}.tar.gz" "$BACKUP_NAME")
 rm -rf "$BACKUP_DIR"
 
+# Backups contain secrets (.env with DB password, API keys, etc.) — restrict access.
+chmod 600 "$BACKUP_FILE"
+
 log_ok "Backup created: $BACKUP_FILE"
 
 # Show size
@@ -135,4 +138,5 @@ echo ""
 echo "  File: $BACKUP_FILE"
 echo "  Size: $BACKUP_SIZE"
 echo ""
+log_warn "Backup contains site secrets (.env, keys). Keep it secure."
 log_info "To restore: ./scripts/site-restore.sh $BACKUP_FILE"

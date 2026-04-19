@@ -103,6 +103,14 @@ if [[ -z "$SITE_NAME" ]]; then
     exit 1
 fi
 
+# Defence against malicious/corrupt backups: the extracted SITE_NAME is used to
+# build a filesystem path, so reject anything that isn't a valid site identifier
+# before we touch SITES_DIR.
+if ! validate_site_name "$SITE_NAME"; then
+    log_error "Invalid site name in backup: '$SITE_NAME'"
+    exit 1
+fi
+
 SITE_DIR="$SITES_DIR/$SITE_NAME"
 
 # Check for database dump
@@ -170,11 +178,11 @@ if [[ "$HAS_DB_DUMP" == true ]]; then
         log_warn "Skipping database restore (no MySQL credentials)"
     else
         # Create database if it doesn't exist
-        docker exec mysql mysql -u root -p"$ROOT_PASSWORD" -e \
+        docker exec -e MYSQL_PWD="$ROOT_PASSWORD" mysql mysql -u root -e \
             "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null
 
         # Import dump
-        if docker exec -i mysql mysql -u root -p"$ROOT_PASSWORD" "$DB_NAME" \
+        if docker exec -i -e MYSQL_PWD="$ROOT_PASSWORD" mysql mysql -u root "$DB_NAME" \
             < "$BACKUP_PARENT/database.sql" 2>/dev/null; then
             log_ok "Database '$DB_NAME' restored"
         else

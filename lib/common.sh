@@ -216,10 +216,19 @@ ensure_web_network() {
 
 # Variable to store the directory to clean up on error
 _CLEANUP_DIR=""
+# Variable to store a container to always cleanup on exit (success or error)
+_CLEANUP_CONTAINER=""
 
-# Cleanup function called on error
+# Cleanup function called on exit (any reason)
 _cleanup_on_error() {
     local exit_code=$?
+
+    # Container cleanup always runs (temp install containers must not leak)
+    if [[ -n "$_CLEANUP_CONTAINER" ]]; then
+        docker rm -f "$_CLEANUP_CONTAINER" >/dev/null 2>&1 || true
+    fi
+
+    # Directory cleanup only on error (successful runs clear the var)
     if [[ $exit_code -ne 0 && -n "$_CLEANUP_DIR" && -d "$_CLEANUP_DIR" ]]; then
         log_warn "Cleaning up after error..."
         rm -rf "$_CLEANUP_DIR"
@@ -233,10 +242,24 @@ set_cleanup_dir() {
     trap _cleanup_on_error EXIT
 }
 
-# Disable cleanup (call after success)
+# Disable directory cleanup (call after success)
 clear_cleanup_dir() {
     _CLEANUP_DIR=""
-    trap - EXIT
+    # Only clear trap if no container cleanup is pending
+    [[ -z "$_CLEANUP_CONTAINER" ]] && trap - EXIT
+}
+
+# Register a container to always be removed on exit
+set_cleanup_container() {
+    _CLEANUP_CONTAINER="$1"
+    trap _cleanup_on_error EXIT
+}
+
+# Unregister the container (call after explicit cleanup)
+clear_cleanup_container() {
+    _CLEANUP_CONTAINER=""
+    # Only clear trap if no directory cleanup is pending
+    [[ -z "$_CLEANUP_DIR" ]] && trap - EXIT
 }
 
 # =============================================================================

@@ -132,10 +132,13 @@ create_compose_redirect() {
         entrypoint="web"
     fi
 
+    # The backend is never actually reached (Traefik's redirectregex middleware
+    # intercepts all requests), but Traefik still requires a backing service.
+    # nginx:alpine is lightweight and semantically correct (matches other modes).
     cat > "$DEFAULT_SITE_COMPOSE" << EOF
 services:
   default-site:
-    image: traefik/whoami
+    image: nginx:alpine
     container_name: default-site
     restart: always
     labels:
@@ -343,6 +346,14 @@ esac
 if [[ "$MODE" == "redirect" ]] && [[ -z "$REDIRECT_URL" ]]; then
     log_error "Redirect URL is required for redirect mode"
     log_error "Use: --redirect-url <url>"
+    exit 1
+fi
+
+# Reject URL characters that would break the YAML label or the Traefik regex
+# (double quotes, backticks, whitespace, backslashes).
+if [[ "$MODE" == "redirect" ]] && [[ "$REDIRECT_URL" =~ [[:space:]\"\`\\] ]]; then
+    log_error "Redirect URL contains unsafe characters (whitespace, quotes, backticks or backslashes)"
+    log_error "URL received: $REDIRECT_URL"
     exit 1
 fi
 

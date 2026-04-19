@@ -11,6 +11,11 @@ services:
     environment:
       - "SERVER_NAME=:80"
       - "SERVER_ROOT=/app/public"
+      - "DB_HOST=${DB_HOST:-mysql}"
+      - "DB_PORT=${DB_PORT:-3306}"
+      - "DB_DATABASE=${DB_DATABASE:-}"
+      - "DB_USERNAME=${DB_USERNAME:-}"
+      - "DB_PASSWORD=${DB_PASSWORD:-}"
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.${SITE_NAME}.rule=Host(`${SITE_URL}`)"

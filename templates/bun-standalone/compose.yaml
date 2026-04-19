@@ -12,6 +12,11 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=${NODE_ENV:-production}
+      - "DB_HOST=${DB_HOST:-mysql}"
+      - "DB_PORT=${DB_PORT:-3306}"
+      - "DB_DATABASE=${DB_DATABASE:-}"
+      - "DB_USERNAME=${DB_USERNAME:-}"
+      - "DB_PASSWORD=${DB_PASSWORD:-}"
     security_opt:
       - no-new-privileges:true
     deploy:

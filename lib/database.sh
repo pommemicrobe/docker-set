@@ -42,23 +42,30 @@ wait_for_mysql() {
 
 # Get MySQL root password from config
 # Usage: get_mysql_root_password
-# Returns: password on stdout, 1 on failure
+# Returns: password on stdout, 1 on failure (empty file, missing key, or empty value)
 get_mysql_root_password() {
     local mysql_env="$CONFIG_DIR/mysql/.env"
     if [[ ! -f "$mysql_env" ]]; then
         log_warn "MySQL .env not found"
         return 1
     fi
-    grep "^MYSQL_ROOT_PASSWORD=" "$mysql_env" | cut -d'=' -f2
+    local password
+    password=$(grep "^MYSQL_ROOT_PASSWORD=" "$mysql_env" | cut -d'=' -f2-)
+    if [[ -z "$password" ]]; then
+        log_warn "MYSQL_ROOT_PASSWORD not set in $mysql_env"
+        return 1
+    fi
+    printf '%s' "$password"
 }
 
 # Check if a database exists
 # Usage: database_exists <db_name> <root_password>
 # Returns: 0 if exists, 1 if not
+# Uses MYSQL_PWD env var to avoid exposing password in process list.
 database_exists() {
     local db_name="$1"
     local root_password="$2"
-    docker exec mysql mysql -u root -p"$root_password" -e "USE \`$db_name\`" 2>/dev/null
+    docker exec -e MYSQL_PWD="$root_password" mysql mysql -u root -e "USE \`$db_name\`" 2>/dev/null
 }
 
 # Require MySQL to be running and healthy
@@ -113,7 +120,10 @@ create_site_database() {
     DB_RESULT_PASSWORD=$(generate_password 24)
 
     # Create database and user
-    if docker exec mysql mysql -u root -p"$root_password" -e "
+    # MYSQL_PWD env var avoids exposing the password in the process list (ps aux).
+    # DB_RESULT_PASSWORD is generated from [A-Za-z0-9] only, so no SQL escaping is
+    # required for the IDENTIFIED BY clause.
+    if docker exec -e MYSQL_PWD="$root_password" mysql mysql -u root -e "
         CREATE DATABASE IF NOT EXISTS \`$DB_RESULT_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
         CREATE USER IF NOT EXISTS '$DB_RESULT_USER'@'%' IDENTIFIED BY '$DB_RESULT_PASSWORD';
         GRANT ALL PRIVILEGES ON \`$DB_RESULT_NAME\`.* TO '$DB_RESULT_USER'@'%';
@@ -126,5 +136,48 @@ create_site_database() {
         log_warn "Failed to create database (MySQL error)"
         DB_RESULT_PASSWORD=""
         return 1
+    fi
+}
+
+# =============================================================================
+# CREDENTIAL INJECTION
+# =============================================================================
+
+# Inject DB credentials into a site's config files after database creation.
+# Usage: inject_db_credentials <site_dir> <db_name> <db_user> <db_password> [framework]
+#
+# - Uncomments and sets the DB_* block in the site's .env (works for all runtimes).
+# - For laravel: patches DB_PASSWORD in app/.env (other DB_* fields are set by
+#   the framework installer from the site name, which matches what we created).
+# - For wordpress: no extra work needed — wp-config.php reads via getenv() and
+#   the PHP template's compose.yaml forwards DB_* from the site .env to the container.
+inject_db_credentials() {
+    local site_dir="$1"
+    local db_name="$2"
+    local db_user="$3"
+    local db_password="$4"
+    local framework="${5:-}"
+
+    local env_file="$site_dir/.env"
+    if [[ -f "$env_file" ]]; then
+        local escaped_name escaped_user escaped_password
+        escaped_name=$(sed_escape "$db_name")
+        escaped_user=$(sed_escape "$db_user")
+        escaped_password=$(sed_escape "$db_password")
+
+        sed_inplace "s|^# DB_HOST=.*|DB_HOST=mysql|" "$env_file"
+        sed_inplace "s|^# DB_PORT=.*|DB_PORT=3306|" "$env_file"
+        sed_inplace "s|^# DB_DATABASE=.*|DB_DATABASE=$escaped_name|" "$env_file"
+        sed_inplace "s|^# DB_USERNAME=.*|DB_USERNAME=$escaped_user|" "$env_file"
+        sed_inplace "s|^# DB_PASSWORD=.*|DB_PASSWORD=$escaped_password|" "$env_file"
+        log_ok "DB credentials written to site .env"
+    fi
+
+    # Laravel: the installer uncomments DB_PASSWORD but leaves it empty.
+    if [[ "$framework" == "laravel" && -f "$site_dir/app/.env" ]]; then
+        local escaped_password
+        escaped_password=$(sed_escape "$db_password")
+        sed_inplace "s|^DB_PASSWORD=.*|DB_PASSWORD=$escaped_password|" "$site_dir/app/.env"
+        log_ok "DB password written to Laravel .env"
     fi
 }

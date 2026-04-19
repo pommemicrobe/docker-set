@@ -6,24 +6,41 @@ Docker environment for managing multiple web applications with shared infrastruc
 
 ```
 docker-set/
-├── config/                 # Infrastructure configuration
-│   ├── traefik/           # Reverse proxy + SSL
-│   └── mysql/             # Shared database
-├── lib/                   # Script library
-│   └── common.sh          # Shared functions
-├── scripts/               # Management scripts
-│   ├── setup.sh           # Initial setup
-│   ├── site-create.sh     # Create a site
-│   ├── site-delete.sh     # Delete a site
-│   └── site-add-framework.sh
-├── templates/             # Site templates
+├── config/                   # Infrastructure configuration
+│   ├── traefik/              # Reverse proxy + SSL
+│   └── mysql/                # Shared database
+├── lib/                      # Shared bash libraries
+│   ├── common.sh             # Colors, logging, validation, utilities
+│   ├── site.sh               # Site creation, aliases, manifest, versions
+│   ├── database.sh           # MySQL operations, credential injection
+│   └── framework.sh          # Framework installation
+├── scripts/                  # Management scripts
+│   ├── setup.sh              # Initial setup wizard
+│   ├── site-create.sh        # Create a site (+ DB, + framework)
+│   ├── site-delete.sh        # Delete a site
+│   ├── site-list.sh          # List sites and their status
+│   ├── site-backup.sh        # Backup site files + DB
+│   ├── site-restore.sh       # Restore from a backup
+│   └── default-site.sh       # Configure default response for IP access
+├── templates/                # Site templates
+│   ├── dockerfiles/          # Shared Dockerfiles (one per runtime)
+│   ├── php-traefik/          # compose.yaml + .env.dist
 │   ├── php-standalone/
-│   ├── php-traefik/
+│   ├── nodejs-traefik/
 │   ├── nodejs-standalone/
-│   └── nodejs-traefik/
-├── frameworks/            # Framework templates
-├── sites/                 # Deployed sites
-└── backups/               # Backups
+│   ├── bun-traefik/
+│   ├── bun-standalone/
+│   ├── go-traefik/
+│   └── go-standalone/
+├── frameworks/               # Framework installers
+│   ├── laravel/              # PHP
+│   ├── wordpress/            # PHP
+│   ├── nextjs/               # Node.js
+│   ├── elysia/               # Bun
+│   └── gin/                  # Go
+├── sites/                    # Deployed sites (each has site.yaml manifest)
+├── backups/                  # Site backups (.tar.gz)
+└── tests/                    # Smoke tests
 ```
 
 ---
@@ -43,204 +60,237 @@ git clone <repo> && cd docker-set
 
 ---
 
-## Detailed Installation
+## Initial Setup
 
 ### Prerequisites
 
-- Docker and Docker Compose installed
-- Sudo access
+- Docker Engine and Docker Compose v2
+- Sudo access (Docker commands typically require root)
 
-### Initial Setup
-
-The `setup.sh` script automatically configures:
-- Docker network `web`
-- Traefik (reverse proxy + SSL certificates)
-- MySQL (shared database)
+### Automated Setup
 
 ```bash
 ./scripts/setup.sh
 ```
 
-The script will prompt for:
-1. **Email** for Let's Encrypt (SSL certificates)
-2. **MySQL password** (can be auto-generated)
+The wizard configures:
+- Docker network `web`
+- Traefik (reverse proxy + Let's Encrypt SSL)
+- MySQL (shared database for all sites)
 
-### Manual Configuration (Alternative)
-
-If you prefer manual setup:
-
-```bash
-# Create Docker network
-sudo docker network create web
-
-# Configure Traefik
-cd config/traefik
-cp traefik.yaml.dist traefik.yaml
-cp acme.json.dist acme.json
-chmod 600 acme.json
-# Edit traefik.yaml and replace ACME_EMAIL
-sudo docker compose up -d
-
-# Configure MySQL
-cd ../mysql
-cp .env.dist .env
-# Edit .env and set MYSQL_ROOT_PASSWORD
-sudo docker compose up -d
-```
+You'll be prompted for:
+1. **Email** for Let's Encrypt
+2. **MySQL root password** (auto-generated if omitted)
 
 ---
 
-## Management Scripts
+## Site Management
 
-### `site-create.sh` - Create a Site
+### Create a Site
 
 ```bash
-./scripts/site-create.sh <name> <url> <template> [options]
+./scripts/site-create.sh [name] [url] [template] [options]
 ```
 
-**Arguments:**
-- `name`: Site name (lowercase letters, numbers, hyphens)
-- `url`: Site URL (e.g., my-site.com)
-- `template`: Template to use
+Run without arguments for interactive mode. Otherwise:
 
 **Options:**
-- `--no-start`: Don't start the container
-- `--help`: Show help
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--cpu <num>` | CPU limit | `1` |
+| `--memory <size>` | Memory limit (e.g. `512M`, `1G`) | `512M` |
+| `--php-version <ver>` | PHP version: 8.2, 8.3, 8.4 | `8.4` |
+| `--node-version <ver>` | Node.js version: 22, 24 | `24` |
+| `--bun-version <ver>` | Bun version: 1, 1.3 | `1.3` |
+| `--go-version <ver>` | Go version: 1.23, 1.24 | `1.24` |
+| `--framework <name>` | Install a framework (see below) | — |
+| `--with-db` | Create a MySQL database and user | off |
+| `--no-ssl` | Use HTTP instead of HTTPS (local dev) | off |
+| `--no-autostart` | Don't auto-start container when Docker starts | off |
+| `--no-start` | Don't start container after creation | off |
+| `--aliases <domains>` | Extra domains, comma-separated | — |
+| `--redirect-aliases` | 301-redirect aliases to the main URL | off |
 
 **Examples:**
-```bash
-# PHP site with Traefik (automatic SSL)
-./scripts/site-create.sh my-blog my-blog.com php-traefik
 
-# NodeJS site for local development
-./scripts/site-create.sh api-dev localhost:3000 nodejs-standalone --no-start
+```bash
+# PHP + Laravel + MySQL
+./scripts/site-create.sh my-blog my-blog.com php-traefik --framework laravel --with-db
+
+# WordPress
+./scripts/site-create.sh shop shop.com php-traefik --framework wordpress --with-db
+
+# Node.js API with Next.js
+./scripts/site-create.sh api api.example.com nodejs-traefik --framework nextjs
+
+# Bun API with Elysia
+./scripts/site-create.sh elysia-api api.example.com bun-traefik --framework elysia
+
+# Go API with Gin
+./scripts/site-create.sh go-api api.example.com go-traefik --framework gin --with-db
+
+# Local dev without SSL
+./scripts/site-create.sh dev dev.local php-traefik --no-ssl
+
+# www → non-www redirect
+./scripts/site-create.sh site example.com php-traefik \
+  --aliases www.example.com --redirect-aliases
 ```
 
-### `site-delete.sh` - Delete a Site
+### List Sites
 
 ```bash
-./scripts/site-delete.sh <name> [options]
+./scripts/site-list.sh
 ```
 
-**Options:**
-- `--force`: Delete without confirmation
-- `--help`: Show help
+### Delete a Site
 
-**Example:**
 ```bash
-./scripts/site-delete.sh my-blog
+./scripts/site-delete.sh <name> [--force]
 ```
 
-### `site-add-framework.sh` - Install a Framework
+### Backup a Site
 
 ```bash
-./scripts/site-add-framework.sh <site> <framework>
+# Files only
+./scripts/site-backup.sh <name>
+
+# Files + database dump
+./scripts/site-backup.sh <name> --with-db
 ```
 
-**Example:**
+Backups are stored as `backups/<name>_<timestamp>.tar.gz` with `chmod 600` (they contain `.env` secrets).
+
+### Restore a Site
+
 ```bash
-./scripts/site-add-framework.sh my-blog laravel
+./scripts/site-restore.sh backups/<name>_<timestamp>.tar.gz
+```
+
+### Default Site (IP Access)
+
+Configure what happens when someone reaches the server by IP address:
+
+```bash
+./scripts/default-site.sh                           # Interactive
+./scripts/default-site.sh --mode page               # Static page
+./scripts/default-site.sh --mode 404                # Return 404
+./scripts/default-site.sh --mode redirect --redirect-url https://example.com
+./scripts/default-site.sh --mode disable            # Remove
 ```
 
 ---
 
-## Available Templates
+## Templates
 
-### PHP Templates
+| Template | Runtime | Routing | Use Case |
+|----------|---------|---------|----------|
+| `php-traefik` | FrankenPHP | Traefik + SSL | Production PHP |
+| `php-standalone` | FrankenPHP | Direct ports 80/443 | Single-site servers |
+| `nodejs-traefik` | Node.js + PM2 | Traefik + SSL | Production Node.js |
+| `nodejs-standalone` | Node.js + PM2 | Direct port 3000 | Single-site servers |
+| `bun-traefik` | Bun | Traefik + SSL | Production Bun/Elysia |
+| `bun-standalone` | Bun | Direct port 3000 | Single-site Bun |
+| `go-traefik` | Go | Traefik + SSL | Production Go APIs |
+| `go-standalone` | Go | Direct port 8080 | Single-site Go |
 
-| Template | Description | Ports |
-|----------|-------------|-------|
-| `php-standalone` | Direct PHP, no reverse proxy | 80, 443 |
-| `php-traefik` | PHP with Traefik (auto SSL) | Via Traefik |
+### Runtime Versions
 
-**Features:**
-- Base: FrankenPHP
-- Extensions: PDO MySQL, GD, Intl, Zip, OPcache, MySQLi
-- Tools: Composer, Node.js, npm, git
+| Runtime | Available | Default |
+|---------|-----------|---------|
+| PHP | 8.2, 8.3, 8.4 | 8.4 |
+| Node.js | 22, 24 | 24 |
+| Bun | 1, 1.3 | 1.3 |
+| Go | 1.23, 1.24 | 1.24 |
 
-### NodeJS Templates
+Versions are set in `sites/<name>/.env` and passed as Docker build args. To change after creation, edit `.env` and rebuild: `docker compose up -d --build`.
 
-| Template | Description | Ports |
-|----------|-------------|-------|
-| `nodejs-standalone` | Direct NodeJS | 3000 |
-| `nodejs-traefik` | NodeJS with Traefik (auto SSL) | Via Traefik |
+---
 
-**Features:**
-- Base: Node.js 22 LTS (Alpine)
-- Process Manager: PM2 (auto-restart, watch mode)
-- Dependencies installed at startup
+## Frameworks
+
+Framework installers run inside a temporary container during site creation. Each is tied to a specific runtime — incompatible combinations are rejected upfront.
+
+| Framework | Runtime | DB | Notes |
+|-----------|---------|----|-------|
+| `laravel` | PHP | Required | `composer create-project`, `.env` auto-configured |
+| `wordpress` | PHP | Required | Latest WP download, `wp-config.php` reads DB from env |
+| `nextjs` | Node.js | Optional | `create-next-app` with TypeScript + Tailwind |
+| `elysia` | Bun | Optional | Minimal Elysia server on `:3000` |
+| `gin` | Go | Optional | Minimal Gin server on `:8080` |
+
+### Database Credentials
+
+When `--with-db` is used:
+
+1. A MySQL user and database are created (`{site_name}` and `{site_name}_db`).
+2. Credentials are written to `sites/<name>/.env` and forwarded to the container via `compose.yaml`'s `environment:` section.
+3. Framework-specific files are patched:
+   - **Laravel**: `app/.env` gets the real `DB_PASSWORD`.
+   - **WordPress**: `wp-config.php` reads from `getenv()` — no patching needed.
+   - **Others**: the app reads `process.env.DB_*` / `os.Getenv("DB_*")`.
+
+Credentials are displayed once at the end of site creation. They're not stored outside the site's `.env`.
+
+---
+
+## Domain Configuration
+
+**Multiple domains, same content:**
+
+```bash
+./scripts/site-create.sh site example.com php-traefik \
+  --aliases "www.example.com,blog.example.com"
+```
+
+**301 redirect to main domain:**
+
+```bash
+./scripts/site-create.sh site example.com php-traefik \
+  --aliases www.example.com --redirect-aliases
+```
+
+**Local dev (no SSL):**
+
+```bash
+./scripts/site-create.sh dev dev.local php-traefik --no-ssl
+# Add to /etc/hosts: 127.0.0.1 dev.local
+```
 
 ---
 
 ## Development Workflow
 
-### 1. Create a site
+### Per-site Docker commands
 
 ```bash
-./scripts/site-create.sh my-app my-app.com php-traefik
+cd sites/<name>
+
+sudo docker compose up -d          # Start
+sudo docker compose down           # Stop
+sudo docker compose logs -f        # Follow logs
+sudo docker compose up -d --build  # Rebuild (after .env changes)
 ```
 
-### 2. Add your code
+### Your app files live in `sites/<name>/app/`
 
-```bash
-# Your files go in:
-sites/my-app/app/
-```
-
-### 3. Manage the container
-
-```bash
-# Start
-cd sites/my-app && sudo docker compose up -d
-
-# Stop
-cd sites/my-app && sudo docker compose down
-
-# Logs
-cd sites/my-app && sudo docker compose logs -f
-```
-
-### 4. Access
-
-- **Traefik templates:** `https://my-app.com`
-- **Standalone templates:** `http://localhost:3000` (NodeJS) or `http://localhost` (PHP)
-
----
-
-## NodeJS - Required Files
-
-For NodeJS templates, your `app/` directory must contain:
-
-```
-app/
-├── package.json         # Dependencies
-├── index.js             # Entry point (or other)
-└── ecosystem.config.js  # PM2 configuration
-```
-
-**Example ecosystem.config.js:**
-```javascript
-module.exports = {
-  apps: [{
-    name: 'my-app',
-    script: 'index.js',
-    instances: 1,
-    autorestart: true,
-    watch: true,
-    max_memory_restart: '1G'
-  }]
-};
-```
+- **PHP**: FrankenPHP serves `SERVER_ROOT` (`/app/public` by default, `/app/public/public` for Laravel).
+- **Node.js**: PM2 reads `ecosystem.config.js` from `/app/`.
+- **Bun**: Runs `bun run start` from `package.json`.
+- **Go**: Builds and runs `main.go` / `cmd/server/main.go` / `cmd/main.go`.
 
 ---
 
 ## Security
 
-- **Traefik:** Dashboard disabled, Docker socket read-only
-- **Containers:** `no-new-privileges` option enabled
-- **MySQL:** Strong password auto-generated
-- **SSL:** Automatic Let's Encrypt certificates
-- **Scripts:** Strict input validation, confirmation before deletion
+- **MySQL**: passwords passed via `MYSQL_PWD` env var (never visible in `ps`).
+- **Containers**: `no-new-privileges:true` on all templates.
+- **Traefik**: dashboard disabled, Docker socket read-only, HSTS.
+- **SSL**: automatic Let's Encrypt certificates (`acme.json` with permissions 600).
+- **Backups**: created with `chmod 600` (contain `.env` secrets).
+- **Input validation**: strict site names, URLs, and framework/runtime compatibility checks.
+- **Cleanup traps**: interrupted runs (Ctrl+C) clean up temporary install containers.
 
 ---
 
@@ -249,29 +299,41 @@ module.exports = {
 ### Container won't start
 
 ```bash
-# Check logs
-cd sites/<site> && sudo docker compose logs
-
-# Check status
+cd sites/<name> && sudo docker compose logs
 sudo docker ps -a
 ```
 
 ### SSL certificate issues
 
 ```bash
-# Check Traefik logs
 cd config/traefik && sudo docker compose logs
-
-# Check permissions
 ls -la config/traefik/acme.json  # Must be 600
 ```
 
-### MySQL unreachable
+Use `--no-ssl` during local development (`.local` domains won't get real certs anyway).
+
+### MySQL unreachable from a container
+
+From any site container:
+
+- Host: `mysql`
+- Port: `3306`
+- User/password: set in `config/mysql/.env` (or per-site credentials created via `--with-db`)
+
+### Runtime version changed but nothing happens
+
+After editing `PHP_VERSION` / `NODE_VERSION` / `BUN_VERSION` / `GO_VERSION` in a site's `.env`, rebuild:
 
 ```bash
-# From a container, use hostname 'mysql'
-# Host: mysql
-# Port: 3306
-# User: root
-# Password: (defined in config/mysql/.env)
+cd sites/<name> && sudo docker compose up -d --build
 ```
+
+---
+
+## Tests
+
+```bash
+./tests/smoke-test.sh
+```
+
+Validates script syntax, template structure, placeholders, security options, framework metadata, and that MySQL credentials are never passed via `-p` arguments.

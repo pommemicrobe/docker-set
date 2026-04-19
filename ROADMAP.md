@@ -4,14 +4,14 @@ Liste des fonctionnalités prévues pour docker-set.
 
 ## Gestion des sites
 
+- [x] **site-list.sh** : Vue d'ensemble de tous les sites (état, ressources, URLs)
 - [ ] **Site clone** : Dupliquer un site existant avec sa configuration
 - [ ] **Site migrate** : Déplacer un site vers un autre serveur
-- [ ] **Site status** : Vue d'ensemble de tous les sites (état, ressources, URLs)
 
 ## Backups
 
-- [ ] **site-backup.sh** : Sauvegarde des fichiers app + base de données
-- [ ] **site-restore.sh** : Restauration depuis une sauvegarde
+- [x] **site-backup.sh** : Sauvegarde des fichiers app + base de données
+- [x] **site-restore.sh** : Restauration depuis une sauvegarde
 - [ ] Backups automatiques programmés (cron)
 - [ ] Rotation des backups (garder les N derniers)
 

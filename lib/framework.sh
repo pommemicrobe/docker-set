@@ -12,6 +12,32 @@
 # because the CMD typically expects project files (package.json, etc.) that don't
 # exist yet. This also avoids port binding conflicts on standalone templates.
 #
+# =============================================================================
+# FRAMEWORK CONTRACT
+# =============================================================================
+#
+# Each framework lives in frameworks/<name>/ with:
+#   - install.sh    Required. POSIX sh script executed inside the container.
+#   - runtime.txt   Required. Single line: php, nodejs, bun, or go.
+#                   Used to filter which frameworks apply to a given template.
+#   - <other>       Optional assets copied into /tmp/.framework inside the container
+#                   (available to install.sh as $FRAMEWORK_DIR).
+#
+# Environment variables available to install.sh:
+#   SITE_NAME       Site name (validated: [a-z0-9-]+).
+#   SITE_URL        Site URL (e.g. example.com).
+#   APP_DIR         Document root inside the container.
+#                   PHP templates: /app/public (mounted from ./app)
+#                   Others:        /app        (mounted from ./app)
+#   FRAMEWORK_DIR   /tmp/.framework — where the framework's files are copied.
+#
+# Rules:
+#   - install.sh must `set -eu` (enforced by smoke tests).
+#   - install.sh runs BEFORE database creation. Database credentials are injected
+#     post-install by lib/database.sh::inject_db_credentials into the site .env
+#     (and framework-specific files when applicable).
+#   - install.sh should not assume network services (MySQL) are running.
+#
 
 # =============================================================================
 # FRAMEWORK DISCOVERY
@@ -125,6 +151,11 @@ install_framework() {
     local abs_app_dir
     abs_app_dir=$(cd "$app_dir" && pwd)
 
+    # Remove any stale container from a previous interrupted run, then register
+    # cleanup so the container is always removed — even on Ctrl+C or unexpected exit.
+    docker rm -f "$tmp_container" >/dev/null 2>&1 || true
+    set_cleanup_container "$tmp_container"
+
     log_info "Starting temporary container..."
     if ! docker run -d \
         --name "$tmp_container" \
@@ -138,7 +169,6 @@ install_framework() {
     log_info "Copying framework files into container..."
     if ! docker cp "$framework_dir/." "$tmp_container:/tmp/.framework"; then
         log_error "Failed to copy framework files"
-        docker rm -f "$tmp_container" >/dev/null 2>&1 || true
         return 1
     fi
 
@@ -153,12 +183,12 @@ install_framework() {
         -e APP_DIR="$container_app_dir" \
         "$tmp_container" sh /tmp/.framework/install.sh; then
         log_error "Framework installation failed"
-        docker rm -f "$tmp_container" >/dev/null 2>&1 || true
         return 1
     fi
 
-    # Remove the temporary container
+    # Remove the temporary container and unregister the cleanup trap
     docker rm -f "$tmp_container" >/dev/null 2>&1 || true
+    clear_cleanup_container
 
     # Adjust compose.yaml for framework-specific server root
     local server_root

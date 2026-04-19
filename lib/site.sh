@@ -209,6 +209,13 @@ check_standalone_ports() {
         return 0
     fi
 
+    # Skip check with a clear warning when neither tool is available (e.g. minimal
+    # containers); previously we silently returned OK which masked real conflicts.
+    if ! command -v lsof &>/dev/null && ! command -v ss &>/dev/null; then
+        log_warn "Neither 'lsof' nor 'ss' available — port conflict detection skipped"
+        return 0
+    fi
+
     local has_conflict=false
 
     # Extract ports from compose.yaml

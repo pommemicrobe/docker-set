@@ -69,28 +69,6 @@ show_help() {
 # INTERACTIVE MODE
 # =============================================================================
 
-# Simple numbered selection
-simple_select() {
-    local prompt="$1"
-    shift
-    local options=("$@")
-
-    echo -e "\n${YELLOW}?${NC} $prompt"
-    for i in "${!options[@]}"; do
-        echo "  $((i + 1))) ${options[$i]}"
-    done
-
-    local choice
-    while true; do
-        read -p "  Enter number [1-${#options[@]}]: " choice
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#options[@]} ]]; then
-            echo "${options[$((choice - 1))]}"
-            return
-        fi
-        echo "  Invalid choice, try again."
-    done
-}
-
 interactive_mode() {
     print_header "Create New Site"
 
@@ -535,7 +513,11 @@ DB_RESULT_PASSWORD=""
 if [[ "$CREATE_DB" == true ]]; then
     echo ""
     print_header "Creating database"
-    create_site_database "$SITE_NAME" || true
+    if create_site_database "$SITE_NAME"; then
+        inject_db_credentials "$NEW_SITE_DIR" \
+            "$DB_RESULT_NAME" "$DB_RESULT_USER" "$DB_RESULT_PASSWORD" \
+            "$FRAMEWORK_NAME"
+    fi
 fi
 
 # =============================================================================

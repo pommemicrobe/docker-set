@@ -10,27 +10,30 @@ WordPress is automatically downloaded from wordpress.org during site creation.
 
 This will:
 1. Create the site from php-traefik template
-2. Download WordPress latest.zip from wordpress.org
-3. Configure wp-config.php with your site settings
-4. Create database user (with `--with-db` flag)
+2. Download WordPress latest.zip into `sites/<name>/app/`
+3. Copy the pre-configured `wp-config.php`
+4. Create database user; credentials are forwarded to the container via `compose.yaml` (with `--with-db`)
 
 ## Post-installation
 
 1. **Generate security keys**: https://api.wordpress.org/secret-key/1.1/salt/
-2. **Update keys** in `sites/<name>/app/public/wp-config.php`
-3. **Visit your site** to complete WordPress setup wizard
+2. **Update keys** in `sites/<name>/app/wp-config.php`
+3. **Visit your site** to complete the WordPress setup wizard
 
 ## Configuration
 
-### Environment Variables
+### Database Credentials
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DB_HOST` | Database host | `mysql` |
-| `DB_DATABASE` | Database name | `{site_name}_db` |
-| `DB_USERNAME` | Database user | `{site_name}` |
-| `DB_PASSWORD` | Database password | (empty) |
-| `WP_DEBUG` | Enable debug mode | `false` |
+`wp-config.php` reads credentials via `getenv()`. The PHP template forwards the
+following environment variables from the site's `.env` to the container:
+
+| Variable | Source | Default |
+|----------|--------|---------|
+| `DB_HOST` | site `.env` | `mysql` |
+| `DB_DATABASE` | site `.env` | `{site_name}_db` |
+| `DB_USERNAME` | site `.env` | `{site_name}` |
+| `DB_PASSWORD` | site `.env` (auto-injected with `--with-db`) | (empty) |
+| `WP_DEBUG` | container env | `false` |
 
 ### Security Features
 
