@@ -123,9 +123,13 @@ create_site_database() {
     # MYSQL_PWD env var avoids exposing the password in the process list (ps aux).
     # DB_RESULT_PASSWORD is generated from [A-Za-z0-9] only, so no SQL escaping is
     # required for the IDENTIFIED BY clause.
+    # ALTER USER after CREATE USER IF NOT EXISTS ensures the password matches what
+    # we display/write to .env, even when the user already existed (e.g. a previous
+    # run created the user but failed before injecting credentials).
     if docker exec -e MYSQL_PWD="$root_password" mysql mysql -u root -e "
         CREATE DATABASE IF NOT EXISTS \`$DB_RESULT_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
         CREATE USER IF NOT EXISTS '$DB_RESULT_USER'@'%' IDENTIFIED BY '$DB_RESULT_PASSWORD';
+        ALTER USER '$DB_RESULT_USER'@'%' IDENTIFIED BY '$DB_RESULT_PASSWORD';
         GRANT ALL PRIVILEGES ON \`$DB_RESULT_NAME\`.* TO '$DB_RESULT_USER'@'%';
         FLUSH PRIVILEGES;
     " 2>/dev/null; then
