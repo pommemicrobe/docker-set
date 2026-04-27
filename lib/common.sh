@@ -247,6 +247,7 @@ clear_cleanup_dir() {
     _CLEANUP_DIR=""
     # Only clear trap if no container cleanup is pending
     [[ -z "$_CLEANUP_CONTAINER" ]] && trap - EXIT
+    return 0
 }
 
 # Register a container to always be removed on exit
@@ -260,6 +261,7 @@ clear_cleanup_container() {
     _CLEANUP_CONTAINER=""
     # Only clear trap if no directory cleanup is pending
     [[ -z "$_CLEANUP_DIR" ]] && trap - EXIT
+    return 0
 }
 
 # =============================================================================
