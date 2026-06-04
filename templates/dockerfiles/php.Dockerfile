@@ -1,7 +1,7 @@
 # FrankenPHP with configurable PHP version
-# Available: 8.2, 8.3, 8.4
+# Available: 8.2, 8.3, 8.4, 8.5
 # https://hub.docker.com/r/dunglas/frankenphp
-ARG PHP_VERSION=8.4
+ARG PHP_VERSION=8.5
 FROM dunglas/frankenphp:php${PHP_VERSION}-bookworm
 
 # Install system dependencies + PHP extensions in fewer layers

@@ -1,7 +1,7 @@
 # Go with configurable version
-# Available: 1.24, 1.23
+# Available: 1.26, 1.25
 # https://hub.docker.com/_/golang
-ARG GO_VERSION=1.24
+ARG GO_VERSION=1.26
 FROM golang:${GO_VERSION}-alpine
 
 # Install system dependencies

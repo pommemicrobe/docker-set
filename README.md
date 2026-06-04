@@ -100,10 +100,10 @@ Run without arguments for interactive mode. Otherwise:
 |--------|-------------|---------|
 | `--cpu <num>` | CPU limit | `1` |
 | `--memory <size>` | Memory limit (e.g. `512M`, `1G`) | `512M` |
-| `--php-version <ver>` | PHP version: 8.2, 8.3, 8.4 | `8.4` |
+| `--php-version <ver>` | PHP version: 8.2, 8.3, 8.4, 8.5 | `8.5` |
 | `--node-version <ver>` | Node.js version: 22, 24 | `24` |
 | `--bun-version <ver>` | Bun version: 1, 1.3 | `1.3` |
-| `--go-version <ver>` | Go version: 1.23, 1.24 | `1.24` |
+| `--go-version <ver>` | Go version: 1.25, 1.26 | `1.26` |
 | `--framework <name>` | Install a framework (see below) | — |
 | `--with-db` | Create a MySQL database and user | off |
 | `--no-ssl` | Use HTTP instead of HTTPS (local dev) | off |
@@ -199,10 +199,10 @@ Configure what happens when someone reaches the server by IP address:
 
 | Runtime | Available | Default |
 |---------|-----------|---------|
-| PHP | 8.2, 8.3, 8.4 | 8.4 |
+| PHP | 8.2, 8.3, 8.4, 8.5 | 8.5 |
 | Node.js | 22, 24 | 24 |
 | Bun | 1, 1.3 | 1.3 |
-| Go | 1.23, 1.24 | 1.24 |
+| Go | 1.25, 1.26 | 1.26 |
 
 Versions are set in `sites/<name>/.env` and passed as Docker build args. To change after creation, edit `.env` and rebuild: `docker compose up -d --build`.
 

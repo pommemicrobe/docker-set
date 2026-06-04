@@ -3,7 +3,7 @@ services:
     build:
       context: .
       args:
-        GO_VERSION: ${GO_VERSION:-1.24}
+        GO_VERSION: ${GO_VERSION:-1.26}
     container_name: ${SITE_NAME}
     restart: RESTART_POLICY
     volumes:

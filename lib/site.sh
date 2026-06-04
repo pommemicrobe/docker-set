@@ -10,8 +10,8 @@
 # VERSION CONSTANTS
 # =============================================================================
 
-PHP_VERSIONS=("8.4" "8.3" "8.2")
-DEFAULT_PHP_VERSION="8.4"
+PHP_VERSIONS=("8.5" "8.4" "8.3" "8.2")
+DEFAULT_PHP_VERSION="8.5"
 
 NODE_VERSIONS=("24" "22")
 DEFAULT_NODE_VERSION="24"
@@ -19,8 +19,8 @@ DEFAULT_NODE_VERSION="24"
 BUN_VERSIONS=("1.3" "1")
 DEFAULT_BUN_VERSION="1.3"
 
-GO_VERSIONS=("1.24" "1.23")
-DEFAULT_GO_VERSION="1.24"
+GO_VERSIONS=("1.26" "1.25")
+DEFAULT_GO_VERSION="1.26"
 
 # =============================================================================
 # TEMPLATE HELPERS

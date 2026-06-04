@@ -54,7 +54,7 @@ show_help() {
     echo "  $0 my-app app.com php-traefik --php-version 8.3      # PHP 8.3"
     echo "  $0 my-app app.com nodejs-traefik --node-version 22   # Node 22"
     echo "  $0 my-api api.com bun-traefik --framework elysia     # Bun + Elysia"
-    echo "  $0 my-api api.com go-traefik --go-version 1.23       # Go 1.23"
+    echo "  $0 my-api api.com go-traefik --go-version 1.25       # Go 1.25"
     echo "  $0 my-app app.com php-traefik --framework laravel --with-db"
     echo "  $0 my-app app.local php-traefik --no-ssl             # Local dev"
     echo ""
