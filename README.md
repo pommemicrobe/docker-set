@@ -8,7 +8,8 @@ Docker environment for managing multiple web applications with shared infrastruc
 docker-set/
 ├── config/                   # Infrastructure configuration
 │   ├── traefik/              # Reverse proxy + SSL
-│   └── mysql/                # Shared database
+│   ├── mysql/                # Shared database
+│   └── default-site.dist/    # Templates for the default site (IP access)
 ├── lib/                      # Shared bash libraries
 │   ├── common.sh             # Colors, logging, validation, utilities
 │   ├── site.sh               # Site creation, aliases, manifest, versions

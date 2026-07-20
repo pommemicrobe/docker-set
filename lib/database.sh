@@ -14,6 +14,18 @@
 MYSQL_WAIT_TIMEOUT="${MYSQL_WAIT_TIMEOUT:-30}"
 
 # =============================================================================
+# NAMING CONVENTION
+# =============================================================================
+
+# Derive the MySQL database name for a site — single source of truth for the
+# naming convention. (Framework installers running inside containers as POSIX
+# sh cannot source this file and mirror it, e.g. frameworks/laravel/install.sh.)
+# Usage: site_db_name <site_name>
+site_db_name() {
+    printf '%s_db\n' "${1//-/_}"
+}
+
+# =============================================================================
 # MYSQL HEALTH CHECK
 # =============================================================================
 
@@ -99,7 +111,7 @@ require_mysql() {
 create_site_database() {
     local site_name="$1"
 
-    DB_RESULT_NAME="${site_name//-/_}_db"
+    DB_RESULT_NAME=$(site_db_name "$site_name")
     DB_RESULT_USER="${site_name//-/_}"
     DB_RESULT_PASSWORD=""
 

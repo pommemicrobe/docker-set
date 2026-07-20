@@ -7,6 +7,7 @@
 
 # Load libraries
 source "$(dirname "$0")/../lib/common.sh"
+source "$(dirname "$0")/../lib/site.sh"
 source "$(dirname "$0")/../lib/database.sh"
 
 # =============================================================================
@@ -91,11 +92,14 @@ if [[ -z "$BACKUP_CONTENT" || ! -d "$BACKUP_CONTENT" ]]; then
     exit 1
 fi
 
-# Determine site name from the backup's .env or site.yaml
-if [[ -f "$BACKUP_CONTENT/.env" ]]; then
-    SITE_NAME=$(grep "^SITE_NAME=" "$BACKUP_CONTENT/.env" | cut -d'=' -f2)
-elif [[ -f "$BACKUP_CONTENT/site.yaml" ]]; then
-    SITE_NAME=$(grep "^name:" "$BACKUP_CONTENT/site.yaml" | sed 's/name: *"\?\([^"]*\)"\?/\1/')
+# Determine site name from the backup's manifest (the source of truth),
+# falling back to .env for backups created before manifests existed
+SITE_NAME=""
+if [[ -f "$BACKUP_CONTENT/site.yaml" ]]; then
+    SITE_NAME=$(manifest_get "$BACKUP_CONTENT" "name")
+fi
+if [[ -z "$SITE_NAME" && -f "$BACKUP_CONTENT/.env" ]]; then
+    SITE_NAME=$(grep "^SITE_NAME=" "$BACKUP_CONTENT/.env" | cut -d'=' -f2 || true)
 fi
 
 if [[ -z "$SITE_NAME" ]]; then
@@ -170,7 +174,7 @@ log_ok "Site files restored"
 if [[ "$HAS_DB_DUMP" == true ]]; then
     log_info "Restoring database..."
 
-    DB_NAME="${SITE_NAME//-/_}_db"
+    DB_NAME=$(site_db_name "$SITE_NAME")
 
     if ! require_mysql; then
         log_warn "Skipping database restore"

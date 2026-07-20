@@ -106,7 +106,7 @@ log_ok "Site files backed up"
 if [[ "$WITH_DB" == true ]]; then
     log_info "Backing up database..."
 
-    DB_NAME="${SITE_NAME//-/_}_db"
+    DB_NAME=$(site_db_name "$SITE_NAME")
 
     if ! require_mysql; then
         log_warn "Skipping database backup"

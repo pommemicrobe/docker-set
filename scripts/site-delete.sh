@@ -7,6 +7,7 @@
 
 # Load libraries
 source "$(dirname "$0")/../lib/common.sh"
+source "$(dirname "$0")/../lib/site.sh"
 source "$(dirname "$0")/../lib/database.sh"
 
 # =============================================================================
@@ -116,6 +117,12 @@ fi
 # DELETION
 # =============================================================================
 
+# Capture the site's domains before deleting the manifest (for ACME cleanup)
+SITE_DOMAINS=()
+while IFS= read -r _domain; do
+    [[ -n "$_domain" ]] && SITE_DOMAINS+=("$_domain")
+done < <(get_site_domains "$SITE_DIR")
+
 # Stop container if needed
 if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^${SITE_NAME}$"; then
     log_info "Stopping and removing container..."
@@ -127,6 +134,12 @@ fi
 log_info "Deleting files..."
 rm -rf "$SITE_DIR"
 log_ok "Directory deleted"
+
+# Remove the site's certificates from Traefik's ACME storage so it stops
+# trying to renew them forever
+if [[ ${#SITE_DOMAINS[@]} -gt 0 ]]; then
+    purge_acme_certificates "${SITE_DOMAINS[@]}"
+fi
 
 echo ""
 log_ok "Site '$SITE_NAME' deleted successfully"

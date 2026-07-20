@@ -69,6 +69,40 @@ show_help() {
 # INTERACTIVE MODE
 # =============================================================================
 
+# Interactively select a runtime version (sets RUNTIME_VERSION)
+# Usage: select_runtime_version <runtime>
+select_runtime_version() {
+    local runtime="$1"
+    local -a versions
+    local default label
+
+    case "$runtime" in
+        php)    versions=("${PHP_VERSIONS[@]}");  default="$DEFAULT_PHP_VERSION";  label="PHP" ;;
+        nodejs) versions=("${NODE_VERSIONS[@]}"); default="$DEFAULT_NODE_VERSION"; label="Node.js" ;;
+        bun)    versions=("${BUN_VERSIONS[@]}");  default="$DEFAULT_BUN_VERSION";  label="Bun" ;;
+        go)     versions=("${GO_VERSIONS[@]}");   default="$DEFAULT_GO_VERSION";   label="Go" ;;
+        *)      return 0 ;;
+    esac
+
+    echo ""
+    log_info "Available $label versions:"
+    local i
+    for i in "${!versions[@]}"; do
+        local marker=""
+        [[ "${versions[$i]}" == "$default" ]] && marker=" (default)"
+        echo "  $((i + 1))) ${versions[$i]}$marker"
+    done
+
+    local choice
+    read -p "$(echo -e "${YELLOW}?${NC} Select $label version [1-${#versions[@]}] (default: 1): ")" choice
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#versions[@]} ]]; then
+        RUNTIME_VERSION="${versions[$((choice - 1))]}"
+    else
+        RUNTIME_VERSION="$default"
+    fi
+    log_ok "$label version: $RUNTIME_VERSION"
+}
+
 interactive_mode() {
     print_header "Create New Site"
 
@@ -123,73 +157,7 @@ interactive_mode() {
     # Runtime version selection
     local runtime
     runtime=$(get_template_runtime "$TEMPLATE_NAME")
-
-    case "$runtime" in
-        php)
-            echo ""
-            log_info "Available PHP versions:"
-            for i in "${!PHP_VERSIONS[@]}"; do
-                local marker=""
-                [[ "${PHP_VERSIONS[$i]}" == "$DEFAULT_PHP_VERSION" ]] && marker=" (default)"
-                echo "  $((i + 1))) ${PHP_VERSIONS[$i]}$marker"
-            done
-            read -p "$(echo -e "${YELLOW}?${NC} Select PHP version [1-${#PHP_VERSIONS[@]}] (default: 1): ")" choice
-            if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#PHP_VERSIONS[@]} ]]; then
-                RUNTIME_VERSION="${PHP_VERSIONS[$((choice - 1))]}"
-            else
-                RUNTIME_VERSION="$DEFAULT_PHP_VERSION"
-            fi
-            log_ok "PHP version: $RUNTIME_VERSION"
-            ;;
-        nodejs)
-            echo ""
-            log_info "Available Node.js versions:"
-            for i in "${!NODE_VERSIONS[@]}"; do
-                local marker=""
-                [[ "${NODE_VERSIONS[$i]}" == "$DEFAULT_NODE_VERSION" ]] && marker=" (default)"
-                echo "  $((i + 1))) ${NODE_VERSIONS[$i]}$marker"
-            done
-            read -p "$(echo -e "${YELLOW}?${NC} Select Node.js version [1-${#NODE_VERSIONS[@]}] (default: 1): ")" choice
-            if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#NODE_VERSIONS[@]} ]]; then
-                RUNTIME_VERSION="${NODE_VERSIONS[$((choice - 1))]}"
-            else
-                RUNTIME_VERSION="$DEFAULT_NODE_VERSION"
-            fi
-            log_ok "Node.js version: $RUNTIME_VERSION"
-            ;;
-        bun)
-            echo ""
-            log_info "Available Bun versions:"
-            for i in "${!BUN_VERSIONS[@]}"; do
-                local marker=""
-                [[ "${BUN_VERSIONS[$i]}" == "$DEFAULT_BUN_VERSION" ]] && marker=" (default)"
-                echo "  $((i + 1))) ${BUN_VERSIONS[$i]}$marker"
-            done
-            read -p "$(echo -e "${YELLOW}?${NC} Select Bun version [1-${#BUN_VERSIONS[@]}] (default: 1): ")" choice
-            if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#BUN_VERSIONS[@]} ]]; then
-                RUNTIME_VERSION="${BUN_VERSIONS[$((choice - 1))]}"
-            else
-                RUNTIME_VERSION="$DEFAULT_BUN_VERSION"
-            fi
-            log_ok "Bun version: $RUNTIME_VERSION"
-            ;;
-        go)
-            echo ""
-            log_info "Available Go versions:"
-            for i in "${!GO_VERSIONS[@]}"; do
-                local marker=""
-                [[ "${GO_VERSIONS[$i]}" == "$DEFAULT_GO_VERSION" ]] && marker=" (default)"
-                echo "  $((i + 1))) ${GO_VERSIONS[$i]}$marker"
-            done
-            read -p "$(echo -e "${YELLOW}?${NC} Select Go version [1-${#GO_VERSIONS[@]}] (default: 1): ")" choice
-            if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#GO_VERSIONS[@]} ]]; then
-                RUNTIME_VERSION="${GO_VERSIONS[$((choice - 1))]}"
-            else
-                RUNTIME_VERSION="$DEFAULT_GO_VERSION"
-            fi
-            log_ok "Go version: $RUNTIME_VERSION"
-            ;;
-    esac
+    select_runtime_version "$runtime"
 
     # Framework selection (filtered by runtime)
     FRAMEWORK_NAME=""

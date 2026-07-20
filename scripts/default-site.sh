@@ -47,168 +47,65 @@ show_help() {
 # =============================================================================
 
 DEFAULT_SITE_DIR="$CONFIG_DIR/default-site"
+DEFAULT_SITE_DIST="$CONFIG_DIR/default-site.dist"
 DEFAULT_SITE_COMPOSE="$DEFAULT_SITE_DIR/compose.yaml"
 
 # =============================================================================
 # FUNCTIONS
 # =============================================================================
 
+# Resolve the Traefik entrypoint from the NO_SSL flag
+traefik_entrypoint() {
+    if [[ "$NO_SSL" == true ]]; then
+        echo "web"
+    else
+        echo "websecure"
+    fi
+}
+
+# Copy a compose template from the dist dir and set the entrypoint
+# Usage: install_compose_template <template-file>
+install_compose_template() {
+    local template="$1"
+
+    cp "$DEFAULT_SITE_DIST/$template" "$DEFAULT_SITE_COMPOSE"
+    sed_inplace "s|TRAEFIK_ENTRYPOINT|$(traefik_entrypoint)|g" "$DEFAULT_SITE_COMPOSE"
+}
+
 create_default_page() {
     local title="${1:-Welcome}"
     local message="${2:-This server is running.}"
 
     mkdir -p "$DEFAULT_SITE_DIR/html"
+    cp "$DEFAULT_SITE_DIST/index-page.html" "$DEFAULT_SITE_DIR/html/index.html"
 
-    cat > "$DEFAULT_SITE_DIR/html/index.html" << EOF
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>$title</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-        .container {
-            text-align: center;
-            padding: 2rem;
-        }
-        h1 { font-size: 3rem; margin-bottom: 1rem; }
-        p { font-size: 1.25rem; opacity: 0.9; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>$title</h1>
-        <p>$message</p>
-    </div>
-</body>
-</html>
-EOF
+    local escaped_title escaped_message
+    escaped_title=$(sed_escape "$title")
+    escaped_message=$(sed_escape "$message")
+    sed_inplace "s|PAGE_TITLE|$escaped_title|g" "$DEFAULT_SITE_DIR/html/index.html"
+    sed_inplace "s|PAGE_MESSAGE|$escaped_message|g" "$DEFAULT_SITE_DIR/html/index.html"
 }
 
 create_compose_page() {
-    local entrypoint="websecure"
-    if [[ "$NO_SSL" == true ]]; then
-        entrypoint="web"
-    fi
-
-    cat > "$DEFAULT_SITE_COMPOSE" << EOF
-services:
-  default-site:
-    image: nginx:alpine
-    container_name: default-site
-    restart: always
-    volumes:
-      - ./html:/usr/share/nginx/html:ro
-    labels:
-      - "traefik.enable=true"
-      # Catch-all rule with lowest priority
-      - "traefik.http.routers.default-site.rule=PathPrefix(\`/\`)"
-      - "traefik.http.routers.default-site.priority=1"
-      - "traefik.http.routers.default-site.entrypoints=$entrypoint"
-      - "traefik.http.services.default-site.loadbalancer.server.port=80"
-    networks:
-      - web
-
-networks:
-  web:
-    external: true
-EOF
+    install_compose_template "compose-page.yaml"
 }
 
 create_compose_redirect() {
     local redirect_url="$1"
-    local entrypoint="websecure"
-    if [[ "$NO_SSL" == true ]]; then
-        entrypoint="web"
-    fi
 
-    # The backend is never actually reached (Traefik's redirectregex middleware
-    # intercepts all requests), but Traefik still requires a backing service.
-    # nginx:alpine is lightweight and semantically correct (matches other modes).
-    cat > "$DEFAULT_SITE_COMPOSE" << EOF
-services:
-  default-site:
-    image: nginx:alpine
-    container_name: default-site
-    restart: always
-    labels:
-      - "traefik.enable=true"
-      # Catch-all rule with lowest priority
-      - "traefik.http.routers.default-site.rule=PathPrefix(\`/\`)"
-      - "traefik.http.routers.default-site.priority=1"
-      - "traefik.http.routers.default-site.entrypoints=$entrypoint"
-      - "traefik.http.routers.default-site.middlewares=default-redirect"
-      - "traefik.http.middlewares.default-redirect.redirectregex.regex=^https?://[^/]+(.*)"
-      - "traefik.http.middlewares.default-redirect.redirectregex.replacement=${redirect_url}\${1}"
-      - "traefik.http.middlewares.default-redirect.redirectregex.permanent=false"
-      - "traefik.http.services.default-site.loadbalancer.server.port=80"
-    networks:
-      - web
+    install_compose_template "compose-redirect.yaml"
 
-networks:
-  web:
-    external: true
-EOF
+    local escaped_url
+    escaped_url=$(sed_escape "$redirect_url")
+    sed_inplace "s|REDIRECT_URL|$escaped_url|g" "$DEFAULT_SITE_COMPOSE"
 }
 
 create_compose_404() {
     mkdir -p "$DEFAULT_SITE_DIR/html"
+    cp "$DEFAULT_SITE_DIST/index-404.html" "$DEFAULT_SITE_DIR/html/index.html"
+    cp "$DEFAULT_SITE_DIST/nginx-404.conf" "$DEFAULT_SITE_DIR/nginx.conf"
 
-    local entrypoint="websecure"
-    if [[ "$NO_SSL" == true ]]; then
-        entrypoint="web"
-    fi
-
-    cat > "$DEFAULT_SITE_DIR/html/index.html" << 'EOF'
-<!DOCTYPE html>
-<html>
-<head><title>404 Not Found</title></head>
-<body><h1>404 Not Found</h1></body>
-</html>
-EOF
-
-    cat > "$DEFAULT_SITE_DIR/nginx.conf" << 'EOF'
-server {
-    listen 80;
-    location / {
-        return 404;
-    }
-}
-EOF
-
-    cat > "$DEFAULT_SITE_COMPOSE" << EOF
-services:
-  default-site:
-    image: nginx:alpine
-    container_name: default-site
-    restart: always
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./html:/usr/share/nginx/html:ro
-    labels:
-      - "traefik.enable=true"
-      # Catch-all rule with lowest priority
-      - "traefik.http.routers.default-site.rule=PathPrefix(\`/\`)"
-      - "traefik.http.routers.default-site.priority=1"
-      - "traefik.http.routers.default-site.entrypoints=$entrypoint"
-      - "traefik.http.services.default-site.loadbalancer.server.port=80"
-    networks:
-      - web
-
-networks:
-  web:
-    external: true
-EOF
+    install_compose_template "compose-404.yaml"
 }
 
 disable_default_site() {

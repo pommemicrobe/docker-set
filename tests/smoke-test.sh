@@ -244,7 +244,14 @@ done
 echo ""
 echo -e "${YELLOW}Infrastructure config${NC}"
 
-for f in config/traefik/compose.yaml config/traefik/traefik.yaml.dist config/mysql/compose.yaml config/mysql/.env.dist; do
+for f in config/traefik/compose.yaml config/traefik/traefik.yaml.dist \
+         config/mysql/compose.yaml config/mysql/.env.dist \
+         config/default-site.dist/compose-page.yaml \
+         config/default-site.dist/compose-redirect.yaml \
+         config/default-site.dist/compose-404.yaml \
+         config/default-site.dist/index-page.html \
+         config/default-site.dist/index-404.html \
+         config/default-site.dist/nginx-404.conf; do
     if [[ -f "$PROJECT_ROOT/$f" ]]; then
         pass "$f"
     else

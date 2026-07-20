@@ -1,0 +1,28 @@
+services:
+  default-site:
+    # The backend is never actually reached (Traefik's redirectregex middleware
+    # intercepts all requests), but Traefik still requires a backing service.
+    # nginx is lightweight and semantically correct (matches other modes).
+    image: nginx:1.30.4-alpine
+    container_name: default-site
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "traefik.enable=true"
+      # Catch-all rule with lowest priority
+      - "traefik.http.routers.default-site.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.default-site.priority=1"
+      - "traefik.http.routers.default-site.entrypoints=TRAEFIK_ENTRYPOINT"
+      - "traefik.http.routers.default-site.middlewares=default-redirect"
+      - "traefik.http.middlewares.default-redirect.redirectregex.regex=^https?://[^/]+(.*)"
+      # $${1} escapes compose interpolation; Traefik receives ${1} (capture group)
+      - "traefik.http.middlewares.default-redirect.redirectregex.replacement=REDIRECT_URL$${1}"
+      - "traefik.http.middlewares.default-redirect.redirectregex.permanent=false"
+      - "traefik.http.services.default-site.loadbalancer.server.port=80"
+    networks:
+      - web
+
+networks:
+  web:
+    external: true

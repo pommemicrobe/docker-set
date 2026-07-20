@@ -1,0 +1,23 @@
+services:
+  default-site:
+    image: nginx:1.30.4-alpine
+    container_name: default-site
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./html:/usr/share/nginx/html:ro
+    labels:
+      - "traefik.enable=true"
+      # Catch-all rule with lowest priority
+      - "traefik.http.routers.default-site.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.default-site.priority=1"
+      - "traefik.http.routers.default-site.entrypoints=TRAEFIK_ENTRYPOINT"
+      - "traefik.http.services.default-site.loadbalancer.server.port=80"
+    networks:
+      - web
+
+networks:
+  web:
+    external: true

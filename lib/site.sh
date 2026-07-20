@@ -414,7 +414,10 @@ configure_redirect_aliases() {
         echo "      - \"traefik.http.routers.\${SITE_NAME}-redirect.entrypoints=${entrypoint}\""
         echo "      - \"traefik.http.routers.\${SITE_NAME}-redirect.middlewares=\${SITE_NAME}-redirect\""
         echo "      - \"traefik.http.middlewares.\${SITE_NAME}-redirect.redirectregex.regex=^${scheme}://[^/]+(.*)\""
-        echo "      - \"traefik.http.middlewares.\${SITE_NAME}-redirect.redirectregex.replacement=${scheme}://\${SITE_URL}\${1}\""
+        # The file must contain $${1}: compose interpolation resolves it to ${1},
+        # which Traefik reads as the regex capture group (a bare ${1} in the file
+        # is an invalid compose interpolation and breaks docker compose)
+        echo "      - \"traefik.http.middlewares.\${SITE_NAME}-redirect.redirectregex.replacement=${scheme}://\${SITE_URL}\$\${1}\""
         echo "      - \"traefik.http.middlewares.\${SITE_NAME}-redirect.redirectregex.permanent=true\""
         if [[ "$no_ssl" == false ]]; then
             echo "      - \"traefik.http.routers.\${SITE_NAME}-redirect.tls.certresolver=le\""
@@ -530,6 +533,122 @@ EOF
     echo "created_at: \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"" >> "$site_dir/site.yaml"
 
     log_ok "Site manifest created"
+}
+
+# Read a scalar value from a site's manifest (quoted or not)
+# Usage: manifest_get <site_dir> <key>
+# Returns: value on stdout (empty if key absent), 1 if no manifest
+manifest_get() {
+    local manifest="$1/site.yaml"
+    local key="$2"
+
+    [[ -f "$manifest" ]] || return 1
+
+    sed -n "s/^${key}: *\"\{0,1\}\([^\"]*\)\"\{0,1\}\$/\1/p" "$manifest" | head -1
+}
+
+# Print the alias domains declared in a site's manifest, one per line
+# Usage: manifest_get_aliases <site_dir>
+manifest_get_aliases() {
+    local manifest="$1/site.yaml"
+
+    [[ -f "$manifest" ]] || return 0
+
+    # Aliases are the only two-space indented list items in the manifest
+    sed -n 's/^  - *"\(.*\)".*/\1/p' "$manifest"
+}
+
+# =============================================================================
+# ACME CERTIFICATE CLEANUP
+# =============================================================================
+
+# Print the domains of a site (main url + aliases), one per line
+# Usage: get_site_domains <site_dir>
+get_site_domains() {
+    local site_dir="$1"
+
+    manifest_get "$site_dir" "url" || return 0
+    manifest_get_aliases "$site_dir"
+}
+
+# Remove certificates from Traefik's ACME storage (acme.json).
+# Traefik keeps renewing every certificate stored in acme.json even after the
+# site is gone, causing endless renewal errors for deleted domains.
+# Traefik must be stopped during the edit, otherwise its in-memory store
+# rewrites the old content back to disk on the next save.
+# Best-effort: never fails the caller, logs a warning and returns 0 instead.
+# Usage: purge_acme_certificates <domain> [domain...]
+purge_acme_certificates() {
+    local domains=("$@")
+    local acme_file="$CONFIG_DIR/traefik/acme.json"
+
+    [[ ${#domains[@]} -eq 0 ]] && return 0
+    [[ -f "$acme_file" ]] || return 0
+
+    if [[ ! -r "$acme_file" ]]; then
+        log_warn "Cannot read $acme_file (try with sudo) - ACME certificates not purged"
+        return 0
+    fi
+
+    # Nothing to do if none of the domains appear in the storage
+    local domain found=false
+    for domain in "${domains[@]}"; do
+        if grep -qF "\"$domain\"" "$acme_file"; then
+            found=true
+            break
+        fi
+    done
+    [[ "$found" == false ]] && return 0
+
+    if ! command -v jq &>/dev/null; then
+        log_warn "jq is not installed - remove manually from acme.json: ${domains[*]}"
+        return 0
+    fi
+
+    log_info "Purging ACME certificates for: ${domains[*]}"
+
+    local domains_json
+    domains_json=$(printf '%s\n' "${domains[@]}" | jq -R . | jq -s .)
+
+    local traefik_was_running=false
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^traefik$'; then
+        traefik_was_running=true
+        log_info "Stopping traefik..."
+        if ! docker stop traefik >/dev/null 2>&1; then
+            log_warn "Could not stop traefik - ACME certificates not purged"
+            return 0
+        fi
+    fi
+
+    cp "$acme_file" "$acme_file.bak"
+
+    # Drop every certificate whose main domain or SANs match a deleted domain,
+    # in every certificate resolver present in the file
+    local tmp_file="$acme_file.tmp"
+    if jq --argjson domains "$domains_json" '
+        with_entries(
+            if (.value.Certificates? | type) == "array"
+            then .value.Certificates |= map(
+                ([.domain.main] + (.domain.sans // [])) as $certdomains
+                | select(($certdomains - $domains) == $certdomains)
+            )
+            else .
+            end
+        )' "$acme_file" > "$tmp_file" 2>/dev/null && [[ -s "$tmp_file" ]]; then
+        mv "$tmp_file" "$acme_file"
+        chmod 600 "$acme_file"
+        log_ok "Certificates purged from acme.json (backup: acme.json.bak)"
+    else
+        rm -f "$tmp_file"
+        mv "$acme_file.bak" "$acme_file"
+        chmod 600 "$acme_file"
+        log_warn "Failed to update acme.json - backup restored"
+    fi
+
+    if [[ "$traefik_was_running" == true ]]; then
+        log_info "Restarting traefik..."
+        docker start traefik >/dev/null 2>&1 || log_warn "Could not restart traefik - start it manually"
+    fi
 }
 
 # =============================================================================

@@ -15,6 +15,9 @@ api:
   dashboard: false
   insecure: false
 
+# Endpoint /ping interne (port 8080) requis par le healthcheck Docker
+ping: {}
+
 # -----------------------------------------------------------------------------
 # Logging
 # -----------------------------------------------------------------------------
