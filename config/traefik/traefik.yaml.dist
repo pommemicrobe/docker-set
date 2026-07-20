@@ -50,6 +50,9 @@ entryPoints:
     http:
       tls:
         certResolver: le
+      middlewares:
+        - "security-headers@file"
+        - "compression@file"
 
 # -----------------------------------------------------------------------------
 # Providers
@@ -58,6 +61,11 @@ providers:
   docker:
     exposedByDefault: false
     network: web
+
+  # Configuration dynamique (middlewares, options TLS) - voir dynamic.yaml
+  file:
+    filename: "/etc/traefik/dynamic.yaml"
+    watch: true
 
 # -----------------------------------------------------------------------------
 # Certificats SSL (Let's Encrypt)

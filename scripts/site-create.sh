@@ -69,40 +69,6 @@ show_help() {
 # INTERACTIVE MODE
 # =============================================================================
 
-# Interactively select a runtime version (sets RUNTIME_VERSION)
-# Usage: select_runtime_version <runtime>
-select_runtime_version() {
-    local runtime="$1"
-    local -a versions
-    local default label
-
-    case "$runtime" in
-        php)    versions=("${PHP_VERSIONS[@]}");  default="$DEFAULT_PHP_VERSION";  label="PHP" ;;
-        nodejs) versions=("${NODE_VERSIONS[@]}"); default="$DEFAULT_NODE_VERSION"; label="Node.js" ;;
-        bun)    versions=("${BUN_VERSIONS[@]}");  default="$DEFAULT_BUN_VERSION";  label="Bun" ;;
-        go)     versions=("${GO_VERSIONS[@]}");   default="$DEFAULT_GO_VERSION";   label="Go" ;;
-        *)      return 0 ;;
-    esac
-
-    echo ""
-    log_info "Available $label versions:"
-    local i
-    for i in "${!versions[@]}"; do
-        local marker=""
-        [[ "${versions[$i]}" == "$default" ]] && marker=" (default)"
-        echo "  $((i + 1))) ${versions[$i]}$marker"
-    done
-
-    local choice
-    read -p "$(echo -e "${YELLOW}?${NC} Select $label version [1-${#versions[@]}] (default: 1): ")" choice
-    if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#versions[@]} ]]; then
-        RUNTIME_VERSION="${versions[$((choice - 1))]}"
-    else
-        RUNTIME_VERSION="$default"
-    fi
-    log_ok "$label version: $RUNTIME_VERSION"
-}
-
 interactive_mode() {
     print_header "Create New Site"
 

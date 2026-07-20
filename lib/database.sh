@@ -25,6 +25,12 @@ site_db_name() {
     printf '%s_db\n' "${1//-/_}"
 }
 
+# Derive the MySQL user name for a site
+# Usage: site_db_user <site_name>
+site_db_user() {
+    printf '%s\n' "${1//-/_}"
+}
+
 # =============================================================================
 # MYSQL HEALTH CHECK
 # =============================================================================
@@ -112,7 +118,7 @@ create_site_database() {
     local site_name="$1"
 
     DB_RESULT_NAME=$(site_db_name "$site_name")
-    DB_RESULT_USER="${site_name//-/_}"
+    DB_RESULT_USER=$(site_db_user "$site_name")
     DB_RESULT_PASSWORD=""
 
     # Ensure MySQL is running and healthy
@@ -153,6 +159,47 @@ create_site_database() {
         DB_RESULT_PASSWORD=""
         return 1
     fi
+}
+
+# =============================================================================
+# DATABASE DELETION
+# =============================================================================
+
+# Dump a database to a gzipped file (mode 600, removed on failure)
+# Usage: dump_database <db_name> <output_file.sql.gz> <root_password>
+# Returns: 0 on success, 1 on failure
+dump_database() {
+    local db_name="$1"
+    local output="$2"
+    local root_password="$3"
+
+    if ! docker exec -e MYSQL_PWD="$root_password" mysql mysqldump -u root \
+        --single-transaction "$db_name" 2>/dev/null | gzip > "$output"; then
+        rm -f "$output"
+        return 1
+    fi
+
+    # Dumps contain site data — restrict access like backups
+    chmod 600 "$output"
+    return 0
+}
+
+# Drop a site's database and user
+# Usage: drop_site_database <site_name> <root_password>
+# Returns: 0 on success, 1 on failure
+drop_site_database() {
+    local site_name="$1"
+    local root_password="$2"
+
+    local db_name db_user
+    db_name=$(site_db_name "$site_name")
+    db_user=$(site_db_user "$site_name")
+
+    docker exec -e MYSQL_PWD="$root_password" mysql mysql -u root -e "
+        DROP DATABASE IF EXISTS \`$db_name\`;
+        DROP USER IF EXISTS '$db_user'@'%';
+        FLUSH PRIVILEGES;
+    " 2>/dev/null
 }
 
 # =============================================================================

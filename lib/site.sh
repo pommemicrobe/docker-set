@@ -96,6 +96,40 @@ validate_version() {
     return 1
 }
 
+# Interactively select a runtime version (sets RUNTIME_VERSION)
+# Usage: select_runtime_version <runtime>
+select_runtime_version() {
+    local runtime="$1"
+    local -a versions
+    local default label
+
+    case "$runtime" in
+        php)    versions=("${PHP_VERSIONS[@]}");  default="$DEFAULT_PHP_VERSION";  label="PHP" ;;
+        nodejs) versions=("${NODE_VERSIONS[@]}"); default="$DEFAULT_NODE_VERSION"; label="Node.js" ;;
+        bun)    versions=("${BUN_VERSIONS[@]}");  default="$DEFAULT_BUN_VERSION";  label="Bun" ;;
+        go)     versions=("${GO_VERSIONS[@]}");   default="$DEFAULT_GO_VERSION";   label="Go" ;;
+        *)      return 0 ;;
+    esac
+
+    echo ""
+    log_info "Available $label versions:"
+    local i
+    for i in "${!versions[@]}"; do
+        local marker=""
+        [[ "${versions[$i]}" == "$default" ]] && marker=" (default)"
+        echo "  $((i + 1))) ${versions[$i]}$marker"
+    done
+
+    local choice
+    read -p "$(echo -e "${YELLOW}?${NC} Select $label version [1-${#versions[@]}] (default: 1): ")" choice
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#versions[@]} ]]; then
+        RUNTIME_VERSION="${versions[$((choice - 1))]}"
+    else
+        RUNTIME_VERSION="$default"
+    fi
+    log_ok "$label version: $RUNTIME_VERSION"
+}
+
 # Validate all site creation parameters
 # Usage: validate_site_params <name> <url> <template> <cpu> <memory>
 validate_site_params() {
@@ -117,23 +151,11 @@ validate_site_params() {
         return 1
     fi
 
-    # Validate CPU limit
-    if [[ ! "$cpu" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-        log_error "Invalid CPU limit: $cpu"
-        log_info "Use a number like: 0.5, 1, 2"
+    if ! validate_cpu_limit "$cpu"; then
         return 1
     fi
 
-    # Validate memory limit (accept lowercase too)
-    if [[ ! "$memory" =~ ^[0-9]+[MmGg]$ ]]; then
-        log_error "Invalid memory limit: $memory"
-        log_info "Use format like: 256M, 512M, 1G"
-        return 1
-    fi
-
-    # Validate CPU minimum value
-    if [[ $(echo "$cpu <= 0" | bc -l 2>/dev/null || echo "0") == "1" ]]; then
-        log_error "CPU limit must be greater than 0"
+    if ! validate_memory_limit "$memory"; then
         return 1
     fi
 
@@ -141,6 +163,39 @@ validate_site_params() {
     if [[ -d "$SITES_DIR/$name" ]]; then
         log_error "Site '$name' already exists"
         log_info "To delete it: ./scripts/site-delete.sh $name"
+        return 1
+    fi
+
+    return 0
+}
+
+# Validate CPU limit format and minimum value
+# Usage: validate_cpu_limit <cpu>
+validate_cpu_limit() {
+    local cpu="$1"
+
+    if [[ ! "$cpu" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        log_error "Invalid CPU limit: $cpu"
+        log_info "Use a number like: 0.5, 1, 2"
+        return 1
+    fi
+
+    if [[ $(echo "$cpu <= 0" | bc -l 2>/dev/null || echo "0") == "1" ]]; then
+        log_error "CPU limit must be greater than 0"
+        return 1
+    fi
+
+    return 0
+}
+
+# Validate memory limit format (accepts lowercase unit too)
+# Usage: validate_memory_limit <memory>
+validate_memory_limit() {
+    local memory="$1"
+
+    if [[ ! "$memory" =~ ^[0-9]+[MmGg]$ ]]; then
+        log_error "Invalid memory limit: $memory"
+        log_info "Use format like: 256M, 512M, 1G"
         return 1
     fi
 
@@ -556,6 +611,125 @@ manifest_get_aliases() {
 
     # Aliases are the only two-space indented list items in the manifest
     sed -n 's/^  - *"\(.*\)".*/\1/p' "$manifest"
+}
+
+# Set a scalar value in a site's manifest (updates in place, appends if absent)
+# Usage: manifest_set <site_dir> <key> <value>
+# Returns: 1 if the site has no manifest (older sites)
+manifest_set() {
+    local manifest="$1/site.yaml"
+    local key="$2"
+    local value="$3"
+
+    [[ -f "$manifest" ]] || return 1
+
+    local escaped_value
+    escaped_value=$(sed_escape "$value")
+    if grep -q "^${key}:" "$manifest"; then
+        sed_inplace "s|^${key}: .*|${key}: \"${escaped_value}\"|" "$manifest"
+    else
+        echo "${key}: \"$value\"" >> "$manifest"
+    fi
+}
+
+# =============================================================================
+# SITE UPDATE
+# =============================================================================
+
+# Determine the runtime of an existing site (manifest, fallback .env for
+# sites created before manifests existed)
+# Usage: get_site_runtime <site_dir>
+# Returns: php|nodejs|bun|go|unknown on stdout
+get_site_runtime() {
+    local site_dir="$1"
+
+    local runtime
+    runtime=$(manifest_get "$site_dir" "runtime" || true)
+    if [[ -n "$runtime" ]]; then
+        echo "$runtime"
+        return 0
+    fi
+
+    local env_file="$site_dir/.env"
+    if [[ -f "$env_file" ]]; then
+        if grep -q "^PHP_VERSION=" "$env_file"; then echo "php"; return 0; fi
+        if grep -q "^NODE_VERSION=" "$env_file"; then echo "nodejs"; return 0; fi
+        if grep -q "^BUN_VERSION=" "$env_file"; then echo "bun"; return 0; fi
+        if grep -q "^GO_VERSION=" "$env_file"; then echo "go"; return 0; fi
+    fi
+
+    echo "unknown"
+}
+
+# Get the current runtime version of a site (.env is the operative truth,
+# manifest as fallback)
+# Usage: get_site_version <site_dir> <runtime>
+get_site_version() {
+    local site_dir="$1"
+    local runtime="$2"
+
+    local var
+    case "$runtime" in
+        php)    var="PHP_VERSION" ;;
+        nodejs) var="NODE_VERSION" ;;
+        bun)    var="BUN_VERSION" ;;
+        go)     var="GO_VERSION" ;;
+        *)      return 1 ;;
+    esac
+
+    local version=""
+    if [[ -f "$site_dir/.env" ]]; then
+        version=$(sed -n "s/^${var}=//p" "$site_dir/.env" | head -1)
+    fi
+    if [[ -z "$version" ]]; then
+        version=$(manifest_get "$site_dir" "${runtime}_version" || true)
+    fi
+    printf '%s\n' "$version"
+}
+
+# Change the runtime version of an existing site (.env + manifest)
+# Usage: update_site_version <site_dir> <runtime> <version>
+update_site_version() {
+    local site_dir="$1"
+    local runtime="$2"
+    local version="$3"
+
+    local env_file="$site_dir/.env"
+    [[ -f "$env_file" ]] || return 1
+
+    case "$runtime" in
+        php)    sed_inplace "s|^PHP_VERSION=.*|PHP_VERSION=$version|" "$env_file" ;;
+        nodejs) sed_inplace "s|^NODE_VERSION=.*|NODE_VERSION=$version|" "$env_file" ;;
+        bun)    sed_inplace "s|^BUN_VERSION=.*|BUN_VERSION=$version|" "$env_file" ;;
+        go)     sed_inplace "s|^GO_VERSION=.*|GO_VERSION=$version|" "$env_file" ;;
+        *)      return 1 ;;
+    esac
+
+    manifest_set "$site_dir" "${runtime}_version" "$version" || true
+    log_ok "Runtime version set to $version"
+}
+
+# Change the resource limits of an existing site (compose.yaml + manifest)
+# Values in compose.yaml are always single-quoted (enforced by smoke tests)
+# Usage: update_site_resources <site_dir> <cpu> <memory>
+update_site_resources() {
+    local site_dir="$1"
+    local cpu="$2"
+    local memory="$3"
+
+    local compose_file="$site_dir/compose.yaml"
+    [[ -f "$compose_file" ]] || return 1
+
+    if [[ -n "$cpu" ]]; then
+        sed_inplace "s|cpus: '[^']*'|cpus: '$cpu'|" "$compose_file"
+        manifest_set "$site_dir" "cpu_limit" "$cpu" || true
+    fi
+    if [[ -n "$memory" ]]; then
+        sed_inplace "s|memory: '[^']*'|memory: '$memory'|" "$compose_file"
+        manifest_set "$site_dir" "memory_limit" "$memory" || true
+    fi
+
+    log_ok "Resource limits updated (CPU: ${cpu:-unchanged}, Memory: ${memory:-unchanged})"
 }
 
 # =============================================================================

@@ -18,6 +18,7 @@ docker-set/
 ├── scripts/                  # Management scripts
 │   ├── setup.sh              # Initial setup wizard
 │   ├── site-create.sh        # Create a site (+ DB, + framework)
+│   ├── site-update.sh        # Update a site (rebuild, version, resources)
 │   ├── site-delete.sh        # Delete a site
 │   ├── site-list.sh          # List sites and their status
 │   ├── site-backup.sh        # Backup site files + DB
@@ -145,11 +146,37 @@ Run without arguments for interactive mode. Otherwise:
 ./scripts/site-list.sh
 ```
 
+### Update a Site
+
+```bash
+# Rebuild with the latest base image (security updates) and recreate
+./scripts/site-update.sh <name>
+
+# Change runtime version, then rebuild
+./scripts/site-update.sh <name> --php-version 8.4
+
+# Change resource limits
+./scripts/site-update.sh <name> --cpu 2 --memory 1G
+
+# Full rebuild without layer cache
+./scripts/site-update.sh <name> --no-cache
+
+# Refresh the base image of every site
+./scripts/site-update.sh --all
+
+# Interactive mode
+./scripts/site-update.sh
+```
+
+The container is only recreated if it was running; stopped sites are just rebuilt. Run `./scripts/site-update.sh --all` periodically to pick up base image security updates.
+
 ### Delete a Site
 
 ```bash
-./scripts/site-delete.sh <name> [--force]
+./scripts/site-delete.sh <name> [--with-db] [--force]
 ```
+
+Removes the container, the built Docker image, the site files and its Let's Encrypt certificates. With `--with-db` (or on interactive confirmation), the site's MySQL database and user are also deleted — a safety dump is saved to `backups/` first. `--force` alone never touches the database.
 
 ### Backup a Site
 

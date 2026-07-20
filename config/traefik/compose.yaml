@@ -11,6 +11,7 @@ services:
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "./traefik.yaml:/etc/traefik/traefik.yml:ro"
+      - "./dynamic.yaml:/etc/traefik/dynamic.yaml:ro"
       - "./acme.json:/letsencrypt/acme.json"
       - "./logs:/var/log/traefik"
     networks:

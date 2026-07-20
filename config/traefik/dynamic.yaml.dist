@@ -1,0 +1,42 @@
+# =============================================================================
+# Configuration dynamique Traefik - middlewares et options TLS
+# =============================================================================
+#
+# Instructions:
+# 1. Copier ce fichier vers dynamic.yaml (fait automatiquement par setup.sh)
+# 2. Rechargé à chaud par Traefik (watch: true) - pas besoin de redémarrer
+#
+
+# -----------------------------------------------------------------------------
+# Options TLS (appliquées à toutes les connexions HTTPS)
+# -----------------------------------------------------------------------------
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+
+# -----------------------------------------------------------------------------
+# Middlewares
+# -----------------------------------------------------------------------------
+http:
+  middlewares:
+    # Appliqué globalement sur l'entrypoint websecure (voir traefik.yaml)
+    security-headers:
+      headers:
+        # HSTS: 1 an. stsIncludeSubdomains volontairement absent: il forcerait
+        # HTTPS sur des sous-domaines potentiellement hébergés ailleurs.
+        stsSeconds: 31536000
+        contentTypeNosniff: true
+        customFrameOptionsValue: "SAMEORIGIN"
+        referrerPolicy: "strict-origin-when-cross-origin"
+
+    # Appliqué globalement sur l'entrypoint websecure (voir traefik.yaml)
+    compression:
+      compress: {}
+
+    # Opt-in, par site, via un label dans le compose.yaml du site:
+    #   - "traefik.http.routers.${SITE_NAME}.middlewares=rate-limit@file"
+    rate-limit:
+      rateLimit:
+        average: 100
+        burst: 50

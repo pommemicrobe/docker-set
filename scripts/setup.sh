@@ -31,6 +31,12 @@ setup_traefik() {
         log_ok "traefik.yaml created"
     fi
 
+    # Copy dynamic.yaml.dist (middlewares, TLS options)
+    if [[ ! -f "$traefik_dir/dynamic.yaml" ]]; then
+        cp "$traefik_dir/dynamic.yaml.dist" "$traefik_dir/dynamic.yaml"
+        log_ok "dynamic.yaml created"
+    fi
+
     # Ask for Let's Encrypt email
     local current_email
     current_email=$(grep 'email:' "$traefik_dir/traefik.yaml" 2>/dev/null | sed 's/.*email:[[:space:]]*"\{0,1\}\([^"]*\)"\{0,1\}/\1/' || echo "ACME_EMAIL")

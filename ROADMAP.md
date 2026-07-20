@@ -5,6 +5,7 @@ Liste des fonctionnalités prévues pour docker-set.
 ## Gestion des sites
 
 - [x] **site-list.sh** : Vue d'ensemble de tous les sites (état, ressources, URLs)
+- [x] **site-update.sh** : Mise à jour d'un site (rebuild image de base, version runtime, ressources, `--all`)
 - [ ] **Site clone** : Dupliquer un site existant avec sa configuration
 - [ ] **Site migrate** : Déplacer un site vers un autre serveur
 

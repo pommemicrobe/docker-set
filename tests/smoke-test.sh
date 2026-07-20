@@ -245,6 +245,7 @@ echo ""
 echo -e "${YELLOW}Infrastructure config${NC}"
 
 for f in config/traefik/compose.yaml config/traefik/traefik.yaml.dist \
+         config/traefik/dynamic.yaml.dist \
          config/mysql/compose.yaml config/mysql/.env.dist \
          config/default-site.dist/compose-page.yaml \
          config/default-site.dist/compose-redirect.yaml \

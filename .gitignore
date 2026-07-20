@@ -4,6 +4,7 @@
 
 # Traefik
 config/traefik/traefik.yaml
+config/traefik/dynamic.yaml
 config/traefik/acme.json
 config/traefik/logs/*
 !config/traefik/logs/.gitkeep
