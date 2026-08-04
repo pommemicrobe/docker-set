@@ -348,6 +348,10 @@ copy_template() {
     # The site dir is the build context: .dockerignore keeps secrets out of images
     cp "$TEMPLATES_DIR/dockerfiles/dockerignore" "$site_dir/.dockerignore"
 
+    # Pre-create app/ owned by the invoking user: the dev bind mount would
+    # otherwise create it root-owned, and prod builds require it to exist
+    mkdir -p "$site_dir/app"
+
     log_ok "Template '$template_name' copied ($mode mode)"
 }
 
