@@ -19,12 +19,12 @@ Tickets :
 
 - [x] T1 — Socle : `site-create.sh --mode`, manifest, variantes de templates, `.dockerignore`
 - [x] T2 — Image prod Go (multi-stage, binaire statique, runtime minimal)
-- [ ] T3 — Image prod Bun
-- [ ] T4 — Image prod Node.js (PM2 supprimé en prod)
-- [ ] T5 — Image prod PHP (composer `--no-dev`, code dans l'image)
+- [x] T3 — Image prod Bun
+- [x] T4 — Image prod Node.js (PM2 supprimé en prod)
+- [x] T5 — Image prod PHP (composer `--no-dev`, code dans l'image)
 - [x] T6 — `site-shell.sh` / `site-run.sh` (commandes dans les conteneurs, zéro install hôte)
-- [ ] T7 — Déploiement git : `--from-git`, `site-deploy.sh` (git conteneurisé)
-- [ ] T8 — Bascule de mode via `site-update.sh --mode`, colonne mode dans `site-list.sh`
+- [x] T7 — Déploiement git : `--from-git`, `site-deploy.sh` (git conteneurisé)
+- [x] T8 — Bascule de mode via `site-update.sh --mode`, colonne mode dans `site-list.sh`
 - [ ] T9 — Volume data prod dans backup/restore (SQLite)
 - [ ] T10 — Tests smoke des deux modes + lint shellcheck via Docker
 - [ ] T11 — Documentation (README, CLAUDE.md)
