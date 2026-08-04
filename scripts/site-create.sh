@@ -34,6 +34,7 @@ show_help() {
     echo "  --node-version <ver>  Node.js version (${NODE_VERSIONS[*]}). Default: $DEFAULT_NODE_VERSION"
     echo "  --bun-version <ver>   Bun version (${BUN_VERSIONS[*]}). Default: $DEFAULT_BUN_VERSION"
     echo "  --go-version <ver>    Go version (${GO_VERSIONS[*]}). Default: $DEFAULT_GO_VERSION"
+    echo "  --mode <dev|prod>     dev: live code mount; prod: code baked into the image. Default: dev"
     echo "  --framework <name>    Framework to install (optional)"
     echo "  --with-db             Create database user for this site"
     echo "  --no-ssl              Use HTTP instead of HTTPS (for local development)"
@@ -55,6 +56,7 @@ show_help() {
     echo "  $0 my-app app.com nodejs-traefik --node-version 22   # Node 22"
     echo "  $0 my-api api.com bun-traefik --framework elysia     # Bun + Elysia"
     echo "  $0 my-api api.com go-traefik --go-version 1.25       # Go 1.25"
+    echo "  $0 my-api api.com go-traefik --mode prod              # Production build"
     echo "  $0 my-app app.com php-traefik --framework laravel --with-db"
     echo "  $0 my-app app.local php-traefik --no-ssl             # Local dev"
     echo ""
@@ -124,6 +126,16 @@ interactive_mode() {
     local runtime
     runtime=$(get_template_runtime "$TEMPLATE_NAME")
     select_runtime_version "$runtime"
+
+    # Site mode (only when the template ships a prod compose variant)
+    MODE="dev"
+    if [[ -f "$TEMPLATES_DIR/$TEMPLATE_NAME/compose.prod.yaml" ]]; then
+        echo ""
+        if confirm "Production mode? (code baked into the image, no live mount)" "n"; then
+            MODE="prod"
+        fi
+        log_ok "Mode: $MODE"
+    fi
 
     # Framework selection (filtered by runtime)
     FRAMEWORK_NAME=""
@@ -203,6 +215,7 @@ interactive_mode() {
     echo "  URL:        $SITE_URL"
     echo "  Template:   $TEMPLATE_NAME"
     echo "  Version:    $RUNTIME_VERSION"
+    echo "  Mode:       $MODE"
     [[ -n "$FRAMEWORK_NAME" ]] && echo "  Framework:  $FRAMEWORK_NAME"
     echo "  CPU:        $CPU_LIMIT"
     echo "  Memory:     $MEMORY_LIMIT"
@@ -239,6 +252,7 @@ INTERACTIVE=false
 ALIASES=""
 REDIRECT_ALIASES=false
 RUNTIME_VERSION=""
+MODE="dev"
 
 # Parse arguments
 POSITIONAL=()
@@ -274,6 +288,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --go-version)
             RUNTIME_VERSION="$2"
+            shift 2
+            ;;
+        --mode)
+            MODE="$2"
             shift 2
             ;;
         --framework)
@@ -351,6 +369,15 @@ if ! validate_version "$RUNTIME" "$RUNTIME_VERSION"; then
     exit 1
 fi
 
+# Validate mode (prod requires a compose.prod.yaml variant in the template)
+if ! validate_mode "$MODE"; then
+    exit 1
+fi
+if [[ "$MODE" == "prod" && ! -f "$TEMPLATES_DIR/$TEMPLATE_NAME/compose.prod.yaml" ]]; then
+    log_error "Prod mode not yet available for template '$TEMPLATE_NAME' (no compose.prod.yaml)"
+    exit 1
+fi
+
 # Validate aliases
 if [[ -n "$ALIASES" ]]; then
     if ! validate_aliases "$ALIASES" "$SITE_URL"; then
@@ -380,8 +407,13 @@ if is_traefik_template "$TEMPLATE_NAME"; then
 fi
 
 # Check port conflicts for standalone templates (early exit)
+# Inspect the compose variant the site will actually use
 if [[ "$NO_START" == false ]]; then
-    COMPOSE_TEMPLATE="$TEMPLATES_DIR/$TEMPLATE_NAME/compose.yaml"
+    if [[ "$MODE" == "prod" ]]; then
+        COMPOSE_TEMPLATE="$TEMPLATES_DIR/$TEMPLATE_NAME/compose.prod.yaml"
+    else
+        COMPOSE_TEMPLATE="$TEMPLATES_DIR/$TEMPLATE_NAME/compose.yaml"
+    fi
     if ! check_standalone_ports "$TEMPLATE_NAME" "$COMPOSE_TEMPLATE"; then
         log_error "Required ports are already in use"
         log_info "Use --no-start to create the site without starting it"
@@ -405,7 +437,7 @@ set_cleanup_dir "$NEW_SITE_DIR"
 
 # Copy template + shared Dockerfile
 log_info "Copying template '$TEMPLATE_NAME'..."
-copy_template "$TEMPLATE_NAME" "$NEW_SITE_DIR" "$RUNTIME_VERSION"
+copy_template "$TEMPLATE_NAME" "$NEW_SITE_DIR" "$RUNTIME_VERSION" "$MODE"
 
 # Configure .env
 log_info "Configuring environment..."
@@ -432,7 +464,7 @@ fi
 # Generate site manifest
 generate_site_manifest "$NEW_SITE_DIR" "$SITE_NAME" "$SITE_URL" "$TEMPLATE_NAME" \
     "$RUNTIME_VERSION" "$CPU_LIMIT" "$MEMORY_LIMIT" "$NO_SSL" \
-    "$FRAMEWORK_NAME" "$ALIASES" "$REDIRECT_ALIASES" "$NO_AUTOSTART"
+    "$FRAMEWORK_NAME" "$ALIASES" "$REDIRECT_ALIASES" "$NO_AUTOSTART" "$MODE"
 
 # Disable cleanup (success)
 clear_cleanup_dir
@@ -464,6 +496,7 @@ echo "  Location:  $NEW_SITE_DIR"
 echo "  URL:       $SITE_URL"
 echo "  Template:  $TEMPLATE_NAME"
 echo "  Version:   $RUNTIME_VERSION ($RUNTIME)"
+echo "  Mode:      $MODE"
 [[ -n "$FRAMEWORK_NAME" ]] && echo "  Framework: $FRAMEWORK_NAME"
 echo "  Resources: CPU=$CPU_LIMIT, Memory=$MEMORY_LIMIT"
 

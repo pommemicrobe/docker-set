@@ -130,6 +130,20 @@ select_runtime_version() {
     log_ok "$label version: $RUNTIME_VERSION"
 }
 
+# Validate site mode
+# Usage: validate_mode <mode>
+validate_mode() {
+    local mode="$1"
+
+    if [[ "$mode" != "dev" && "$mode" != "prod" ]]; then
+        log_error "Invalid mode: $mode"
+        log_info "Available modes: dev, prod"
+        return 1
+    fi
+
+    return 0
+}
+
 # Validate all site creation parameters
 # Usage: validate_site_params <name> <url> <template> <cpu> <memory>
 validate_site_params() {
@@ -294,19 +308,33 @@ check_standalone_ports() {
 # SITE CREATION
 # =============================================================================
 
-# Copy template and shared Dockerfile to site directory
-# Usage: copy_template <template_name> <site_dir> <runtime_version>
+# Copy template, shared Dockerfile and .dockerignore to site directory
+# Usage: copy_template <template_name> <site_dir> <runtime_version> [<mode>]
 copy_template() {
     local template_name="$1"
     local site_dir="$2"
-    local runtime_version="$3"
+    # $3 (runtime_version) is reserved in the call signature; unused here
+    local mode="${4:-dev}"
 
     local template_dir="$TEMPLATES_DIR/$template_name"
     local runtime
     runtime=$(get_template_runtime "$template_name")
 
-    # Copy template files (compose.yaml, .env.dist)
+    # Check before copying so a failure leaves nothing behind
+    if [[ "$mode" == "prod" && ! -f "$template_dir/compose.prod.yaml" ]]; then
+        log_error "Prod mode not yet available for template '$template_name' (no compose.prod.yaml)"
+        return 1
+    fi
+
+    # Copy template files (compose.yaml, compose.prod.yaml, .env.dist)
     cp -r "$template_dir" "$site_dir"
+
+    # The site keeps a single compose.yaml: the variant matching its mode
+    if [[ "$mode" == "prod" ]]; then
+        mv "$site_dir/compose.prod.yaml" "$site_dir/compose.yaml"
+    else
+        rm -f "$site_dir/compose.prod.yaml"
+    fi
 
     # Copy shared Dockerfile
     local dockerfile_src="$TEMPLATES_DIR/dockerfiles/${runtime}.Dockerfile"
@@ -317,7 +345,10 @@ copy_template() {
         return 1
     fi
 
-    log_ok "Template '$template_name' copied"
+    # The site dir is the build context: .dockerignore keeps secrets out of images
+    cp "$TEMPLATES_DIR/dockerfiles/dockerignore" "$site_dir/.dockerignore"
+
+    log_ok "Template '$template_name' copied ($mode mode)"
 }
 
 # Configure .env file with site-specific values
@@ -535,7 +566,7 @@ configure_aliases() {
 
 # Generate site manifest file
 # Usage: generate_site_manifest <site_dir> <name> <url> <template> <runtime_version> \
-#        <cpu> <memory> <no_ssl> <framework> <aliases_csv> <redirect_aliases> <no_autostart>
+#        <cpu> <memory> <no_ssl> <framework> <aliases_csv> <redirect_aliases> <no_autostart> <mode>
 generate_site_manifest() {
     local site_dir="$1"
     local name="$2"
@@ -549,6 +580,7 @@ generate_site_manifest() {
     local aliases_csv="${10:-}"
     local redirect_aliases="${11:-false}"
     local no_autostart="${12:-false}"
+    local mode="${13:-dev}"
 
     local runtime
     runtime=$(get_template_runtime "$template")
@@ -565,6 +597,7 @@ url: "$url"
 template: "$template"
 runtime: "$runtime"
 ${runtime}_version: "$version"
+mode: "$mode"
 cpu_limit: "$cpu"
 memory_limit: "$memory"
 ssl: $ssl
@@ -659,6 +692,21 @@ get_site_runtime() {
     fi
 
     echo "unknown"
+}
+
+# Get the mode of an existing site (manifest key; absent = dev for sites
+# created before modes existed)
+# Usage: get_site_mode <site_dir>
+# Returns: dev|prod on stdout
+get_site_mode() {
+    local site_dir="$1"
+
+    local mode
+    mode=$(manifest_get "$site_dir" "mode" || true)
+    if [[ -z "$mode" ]]; then
+        mode="dev"
+    fi
+    echo "$mode"
 }
 
 # Get the current runtime version of a site (.env is the operative truth,

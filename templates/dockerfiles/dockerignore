@@ -1,0 +1,12 @@
+# The site directory is the build context: keep secrets and infra files
+# out of the image (.env contains DB_PASSWORD)
+.env
+site.yaml
+compose.yaml
+compose.prod.yaml
+Dockerfile
+.dockerignore
+app/node_modules
+app/.git
+app/vendor
+data/
