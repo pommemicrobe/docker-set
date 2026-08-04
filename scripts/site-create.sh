@@ -36,6 +36,9 @@ show_help() {
     echo "  --go-version <ver>    Go version (${GO_VERSIONS[*]}). Default: $DEFAULT_GO_VERSION"
     echo "  --mode <dev|prod>     dev: live code mount; prod: code baked into the image. Default: dev"
     echo "  --framework <name>    Framework to install (optional)"
+    echo "  --from-git <url>      Clone a git repository into the site's app/ directory"
+    echo "                        (mutually exclusive with --framework)"
+    echo "  --branch <name>       Branch to clone (requires --from-git). Default: repo default"
     echo "  --with-db             Create database user for this site"
     echo "  --no-ssl              Use HTTP instead of HTTPS (for local development)"
     echo "  --no-autostart        Don't auto-start container when Docker starts"
@@ -48,6 +51,12 @@ show_help() {
     echo "  Use --aliases to add additional domains that serve the same content."
     echo "  Use --redirect-aliases to redirect all aliases to the main URL."
     echo ""
+    echo "Git deployment:"
+    echo "  --from-git clones the repository into app/ using containerized git"
+    echo "  (no git needed on the host). Private HTTPS repos can embed a deploy"
+    echo "  token in the URL: https://TOKEN@github.com/owner/repo.git"
+    echo "  Deploy new commits later with: ./scripts/site-deploy.sh <name>"
+    echo ""
     echo "Examples:"
     echo "  $0                                                    # Interactive"
     echo "  $0 my-blog my-blog.com php-traefik                   # Direct"
@@ -57,6 +66,8 @@ show_help() {
     echo "  $0 my-api api.com bun-traefik --framework elysia     # Bun + Elysia"
     echo "  $0 my-api api.com go-traefik --go-version 1.25       # Go 1.25"
     echo "  $0 my-api api.com go-traefik --mode prod              # Production build"
+    echo "  $0 my-app app.com go-traefik --mode prod --from-git https://github.com/me/app.git"
+    echo "  $0 my-app app.com nodejs-traefik --from-git git@github.com:me/app.git --branch main"
     echo "  $0 my-app app.com php-traefik --framework laravel --with-db"
     echo "  $0 my-app app.local php-traefik --no-ssl             # Local dev"
     echo ""
@@ -65,6 +76,31 @@ show_help() {
     echo ""
     echo "  # Redirect www to non-www:"
     echo "  $0 my-site example.com php-traefik --aliases www.example.com --redirect-aliases"
+}
+
+# =============================================================================
+# GIT SOURCE
+# =============================================================================
+
+# Basic sanity check on a git repository URL (https, git, ssh or scp-like)
+# Usage: validate_git_url <url>
+validate_git_url() {
+    local url="$1"
+
+    # Scheme URLs (https://host/repo.git, git://..., ssh://user@host/repo.git)
+    if [[ "$url" =~ ^(https|git|ssh):// ]]; then
+        return 0
+    fi
+
+    # scp-like syntax (git@github.com:owner/repo.git)
+    if [[ "$url" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+:.+$ ]]; then
+        return 0
+    fi
+
+    log_error "Invalid git URL: '$url'"
+    log_info "Expected: https://host/repo.git, git://..., ssh://... or user@host:path"
+    log_info "Private HTTPS repos can embed a deploy token: https://TOKEN@github.com/owner/repo.git"
+    return 1
 }
 
 # =============================================================================
@@ -137,10 +173,10 @@ interactive_mode() {
         log_ok "Mode: $MODE"
     fi
 
-    # Framework selection (filtered by runtime)
+    # Framework selection (filtered by runtime; skipped when cloning from git)
     FRAMEWORK_NAME=""
     local frameworks=($(get_frameworks "$runtime"))
-    if [[ ${#frameworks[@]} -gt 0 ]]; then
+    if [[ -z "$FROM_GIT" && ${#frameworks[@]} -gt 0 ]]; then
         echo ""
         log_info "Available frameworks (optional):"
         echo "  0) None"
@@ -217,6 +253,7 @@ interactive_mode() {
     echo "  Version:    $RUNTIME_VERSION"
     echo "  Mode:       $MODE"
     [[ -n "$FRAMEWORK_NAME" ]] && echo "  Framework:  $FRAMEWORK_NAME"
+    [[ -n "$FROM_GIT" ]] && echo "  Source:     $FROM_GIT${GIT_BRANCH:+ (branch: $GIT_BRANCH)}"
     echo "  CPU:        $CPU_LIMIT"
     echo "  Memory:     $MEMORY_LIMIT"
     if is_traefik_template "$TEMPLATE_NAME"; then
@@ -253,6 +290,8 @@ ALIASES=""
 REDIRECT_ALIASES=false
 RUNTIME_VERSION=""
 MODE="dev"
+FROM_GIT=""
+GIT_BRANCH=""
 
 # Parse arguments
 POSITIONAL=()
@@ -296,6 +335,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --framework)
             FRAMEWORK_NAME="$2"
+            shift 2
+            ;;
+        --from-git)
+            FROM_GIT="$2"
+            shift 2
+            ;;
+        --branch)
+            GIT_BRANCH="$2"
             shift 2
             ;;
         --with-db)
@@ -385,6 +432,22 @@ if [[ -n "$ALIASES" ]]; then
     fi
 fi
 
+# Validate git source
+if [[ -n "$GIT_BRANCH" && -z "$FROM_GIT" ]]; then
+    log_error "--branch requires --from-git"
+    exit 1
+fi
+if [[ -n "$FROM_GIT" ]]; then
+    if [[ -n "$FRAMEWORK_NAME" ]]; then
+        log_error "--from-git and --framework are mutually exclusive"
+        log_info "Point --from-git at a repository that already contains the application"
+        exit 1
+    fi
+    if ! validate_git_url "$FROM_GIT"; then
+        exit 1
+    fi
+fi
+
 # Validate framework if specified
 if [[ -n "$FRAMEWORK_NAME" ]]; then
     if [[ ! -d "$FRAMEWORKS_DIR/$FRAMEWORK_NAME" ]]; then
@@ -404,6 +467,11 @@ fi
 if is_traefik_template "$TEMPLATE_NAME"; then
     require_docker
     ensure_web_network
+fi
+
+# Cloning runs git in a container, so Docker is needed even for standalone sites
+if [[ -n "$FROM_GIT" ]]; then
+    require_docker
 fi
 
 # Check port conflicts for standalone templates (early exit)
@@ -456,6 +524,26 @@ fi
 # Validate generated compose.yaml
 validate_compose "$NEW_SITE_DIR"
 
+# Clone source repository into app/ (containerized git: no git on the host;
+# runs as the invoking user so cloned files are not owned by root)
+if [[ -n "$FROM_GIT" ]]; then
+    log_info "Cloning $FROM_GIT${GIT_BRANCH:+ (branch: $GIT_BRANCH)}..."
+    mkdir -p "$NEW_SITE_DIR/app"
+    CLONE_ARGS=(clone)
+    [[ -n "$GIT_BRANCH" ]] && CLONE_ARGS+=(--branch "$GIT_BRANCH")
+    CLONE_ARGS+=("$FROM_GIT" .)
+    if ! docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+        -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory \
+        -e GIT_CONFIG_VALUE_0='*' \
+        -v "$NEW_SITE_DIR/app:/repo" -w /repo \
+        alpine/git "${CLONE_ARGS[@]}"; then
+        log_error "Failed to clone repository: $FROM_GIT"
+        log_info "Check the URL, branch and access rights (private HTTPS repos: https://TOKEN@host/repo.git)"
+        exit 1
+    fi
+    log_ok "Repository cloned into app/"
+fi
+
 # Install framework if specified
 if [[ -n "$FRAMEWORK_NAME" ]]; then
     install_framework "$FRAMEWORK_NAME" "$NEW_SITE_DIR/app" "$SITE_NAME" "$SITE_URL" "$RUNTIME_VERSION"
@@ -465,6 +553,15 @@ fi
 generate_site_manifest "$NEW_SITE_DIR" "$SITE_NAME" "$SITE_URL" "$TEMPLATE_NAME" \
     "$RUNTIME_VERSION" "$CPU_LIMIT" "$MEMORY_LIMIT" "$NO_SSL" \
     "$FRAMEWORK_NAME" "$ALIASES" "$REDIRECT_ALIASES" "$NO_AUTOSTART" "$MODE"
+
+# Record the git source so site-deploy.sh can pull updates
+if [[ -n "$FROM_GIT" ]]; then
+    manifest_set "$NEW_SITE_DIR" "source_type" "git"
+    manifest_set "$NEW_SITE_DIR" "source_repo" "$FROM_GIT"
+    if [[ -n "$GIT_BRANCH" ]]; then
+        manifest_set "$NEW_SITE_DIR" "source_branch" "$GIT_BRANCH"
+    fi
+fi
 
 # Disable cleanup (success)
 clear_cleanup_dir
@@ -498,6 +595,7 @@ echo "  Template:  $TEMPLATE_NAME"
 echo "  Version:   $RUNTIME_VERSION ($RUNTIME)"
 echo "  Mode:      $MODE"
 [[ -n "$FRAMEWORK_NAME" ]] && echo "  Framework: $FRAMEWORK_NAME"
+[[ -n "$FROM_GIT" ]] && echo "  Source:    $FROM_GIT${GIT_BRANCH:+ (branch: $GIT_BRANCH)}"
 echo "  Resources: CPU=$CPU_LIMIT, Memory=$MEMORY_LIMIT"
 
 if [[ -n "$DB_RESULT_PASSWORD" ]]; then
