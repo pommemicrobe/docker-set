@@ -2,25 +2,33 @@ services:
   SERVICE_NAME:
     build:
       context: .
-      target: dev
+      target: prod
       args:
         PHP_VERSION: ${PHP_VERSION:-8.5}
     container_name: ${SITE_NAME}
     restart: RESTART_POLICY
+    init: true
     volumes:
-      - ./app:/app/public
+      - app-data:/app/data
     environment:
+      - "APP_ENV=production"
+      - "SERVER_NAME=:80"
       - "SERVER_ROOT=/app/public"
       - "DB_HOST=${DB_HOST:-mysql}"
       - "DB_PORT=${DB_PORT:-3306}"
       - "DB_DATABASE=${DB_DATABASE:-}"
       - "DB_USERNAME=${DB_USERNAME:-}"
       - "DB_PASSWORD=${DB_PASSWORD:-}"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.${SITE_NAME}.rule=Host(`${SITE_URL}`)"
+      - "traefik.http.routers.${SITE_NAME}.entrypoints=websecure"
+      - "traefik.http.routers.${SITE_NAME}.tls.certresolver=le"
+      - "traefik.http.services.${SITE_NAME}.loadbalancer.server.port=80"
     security_opt:
       - no-new-privileges:true
-    ports:
-      - "80:80"
-      - "443:443"
+    networks:
+      - web
     deploy:
       resources:
         limits:
@@ -32,3 +40,10 @@ services:
         max-size: "10m"
         max-file: "3"
         tag: "{{.Name}}"
+
+volumes:
+  app-data:
+
+networks:
+  web:
+    external: true

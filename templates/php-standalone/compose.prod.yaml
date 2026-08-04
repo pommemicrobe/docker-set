@@ -2,14 +2,16 @@ services:
   SERVICE_NAME:
     build:
       context: .
-      target: dev
+      target: prod
       args:
         PHP_VERSION: ${PHP_VERSION:-8.5}
     container_name: ${SITE_NAME}
     restart: RESTART_POLICY
+    init: true
     volumes:
-      - ./app:/app/public
+      - app-data:/app/data
     environment:
+      - "APP_ENV=production"
       - "SERVER_ROOT=/app/public"
       - "DB_HOST=${DB_HOST:-mysql}"
       - "DB_PORT=${DB_PORT:-3306}"
@@ -32,3 +34,6 @@ services:
         max-size: "10m"
         max-file: "3"
         tag: "{{.Name}}"
+
+volumes:
+  app-data:
