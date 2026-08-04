@@ -2,6 +2,7 @@ services:
   SERVICE_NAME:
     build:
       context: .
+      target: dev
       args:
         NODE_VERSION: ${NODE_VERSION:-24}
     container_name: ${SITE_NAME}

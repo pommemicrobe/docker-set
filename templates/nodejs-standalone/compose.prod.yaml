@@ -2,18 +2,18 @@ services:
   SERVICE_NAME:
     build:
       context: .
-      target: dev
+      target: prod
       args:
         NODE_VERSION: ${NODE_VERSION:-24}
     container_name: ${SITE_NAME}
     restart: RESTART_POLICY
+    init: true
     volumes:
-      - ./app:/app
+      - app-data:/app/data
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=${NODE_ENV:-production}
-      - PM2_APP_NAME=${PM2_APP_NAME:-}
+      - NODE_ENV=production
       - "DB_HOST=${DB_HOST:-mysql}"
       - "DB_PORT=${DB_PORT:-3306}"
       - "DB_DATABASE=${DB_DATABASE:-}"
@@ -32,3 +32,6 @@ services:
         max-size: "10m"
         max-file: "3"
         tag: "{{.Name}}"
+
+volumes:
+  app-data:
