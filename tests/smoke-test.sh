@@ -434,6 +434,265 @@ else
 fi
 
 # =============================================================================
+# Helpers for Dockerfile stage inspection (Phase 1: dev/prod site modes)
+# =============================================================================
+
+# Lines from "FROM ... AS build" up to (excluding) "FROM ... AS dev":
+# everything that ends up in prod images
+dockerfile_prod_region() {
+    awk '/^FROM .* AS dev$/{exit} /^FROM .* AS build$/{found=1} found' "$1"
+}
+
+# Lines of the prod stage only (from "FROM ... AS prod" to the next FROM)
+dockerfile_prod_stage() {
+    awk '/^FROM /{found=0} /^FROM .* AS prod$/{found=1} found' "$1"
+}
+
+# Lines of the dev stage (from "FROM ... AS dev" to EOF)
+dockerfile_dev_stage() {
+    awk '/^FROM .* AS dev$/{found=1} found' "$1"
+}
+
+# =============================================================================
+# TEST: Every template ships compose.prod.yaml
+# =============================================================================
+echo ""
+echo -e "${YELLOW}Templates ship compose.prod.yaml${NC}"
+
+for template in "$PROJECT_ROOT"/templates/*/; do
+    [[ -d "$template" ]] || continue
+    name=$(basename "$template")
+    [[ "$name" == "dockerfiles" ]] && continue
+
+    if [[ -f "$template/compose.prod.yaml" ]]; then
+        pass "$name"
+    else
+        fail "$name: missing compose.prod.yaml"
+    fi
+done
+
+# =============================================================================
+# TEST: compose.prod.yaml invariants (baked image, named data volume)
+# =============================================================================
+echo ""
+echo -e "${YELLOW}compose.prod.yaml invariants${NC}"
+
+for template in "$PROJECT_ROOT"/templates/*/; do
+    [[ -d "$template" ]] || continue
+    name=$(basename "$template")
+    [[ "$name" == "dockerfiles" ]] && continue
+
+    compose="$template/compose.prod.yaml"
+    [[ -f "$compose" ]] || continue
+
+    local_ok=true
+    if ! grep -q 'target: prod' "$compose"; then
+        fail "$name: missing 'target: prod'"
+        local_ok=false
+    fi
+    if ! grep -q 'init: true' "$compose"; then
+        fail "$name: missing 'init: true' (SIGTERM forwarding)"
+        local_ok=false
+    fi
+    if ! grep -q 'app-data:/app/data' "$compose"; then
+        fail "$name: missing app-data:/app/data mount"
+        local_ok=false
+    fi
+    if ! grep -q '^volumes:' "$compose" || ! grep -q '^  app-data:' "$compose"; then
+        fail "$name: missing top-level app-data volume declaration"
+        local_ok=false
+    fi
+    if grep -q '\./app:' "$compose"; then
+        fail "$name: has ./app bind mount (prod code must be baked into the image)"
+        local_ok=false
+    fi
+    if ! grep -q 'no-new-privileges' "$compose"; then
+        fail "$name: missing security_opt no-new-privileges"
+        local_ok=false
+    fi
+    if ! grep -q 'DB_DATABASE=${DB_DATABASE' "$compose"; then
+        fail "$name: missing DB_* forwarding in environment section"
+        local_ok=false
+    fi
+    [[ "$local_ok" == true ]] && pass "$name"
+done
+
+# =============================================================================
+# TEST: Dev compose targets the dev stage
+# =============================================================================
+echo ""
+echo -e "${YELLOW}Dev compose targets the dev stage${NC}"
+
+for template in "$PROJECT_ROOT"/templates/*/; do
+    [[ -d "$template" ]] || continue
+    name=$(basename "$template")
+    [[ "$name" == "dockerfiles" ]] && continue
+
+    compose="$template/compose.yaml"
+    [[ -f "$compose" ]] || continue
+
+    if grep -q 'target: dev' "$compose"; then
+        pass "$name"
+    else
+        fail "$name: compose.yaml missing 'target: dev'"
+    fi
+done
+
+# =============================================================================
+# TEST: Dockerfile stages (base/build/prod present, dev LAST)
+# =============================================================================
+echo ""
+echo -e "${YELLOW}Dockerfile stages (base/build/prod, dev last)${NC}"
+
+for df in php.Dockerfile nodejs.Dockerfile bun.Dockerfile go.Dockerfile; do
+    file="$PROJECT_ROOT/templates/dockerfiles/$df"
+    [[ -f "$file" ]] || continue
+
+    local_ok=true
+    for stage in base build prod; do
+        if ! grep -q "^FROM .* AS ${stage}$" "$file"; then
+            fail "$df: missing stage 'AS $stage'"
+            local_ok=false
+        fi
+    done
+    # Backward-compat invariant: the LAST FROM must be the dev stage so
+    # untargeted builds (pre-existing sites without build.target) stay dev
+    last_from=$(grep '^FROM ' "$file" | tail -1)
+    if [[ "$last_from" != *" AS dev" ]]; then
+        fail "$df: last FROM is not 'AS dev' (breaks untargeted builds): $last_from"
+        local_ok=false
+    fi
+    [[ "$local_ok" == true ]] && pass "$df"
+done
+
+# =============================================================================
+# TEST: nodejs prod stages are PM2-free (dev keeps PM2 for backward compat)
+# =============================================================================
+echo ""
+echo -e "${YELLOW}nodejs prod stages are PM2-free${NC}"
+
+nodejs_df="$PROJECT_ROOT/templates/dockerfiles/nodejs.Dockerfile"
+# Comments (e.g. "no PM2") are fine; actual pm2 install/usage is not
+if dockerfile_prod_region "$nodejs_df" | grep -v '^[[:space:]]*#' | grep -qi 'pm2'; then
+    fail "nodejs.Dockerfile: pm2 referenced between AS build and AS dev (prod must not use PM2)"
+else
+    pass "no pm2 between AS build and AS dev"
+fi
+
+if dockerfile_dev_stage "$nodejs_df" | grep -qi 'pm2'; then
+    pass "pm2 still present in dev stage (backward compat)"
+else
+    fail "nodejs.Dockerfile: pm2 missing from dev stage"
+fi
+
+# =============================================================================
+# TEST: Prod stage runtime user
+# =============================================================================
+echo ""
+echo -e "${YELLOW}Prod stage runtime user${NC}"
+
+for df in go.Dockerfile bun.Dockerfile nodejs.Dockerfile; do
+    file="$PROJECT_ROOT/templates/dockerfiles/$df"
+    if dockerfile_prod_stage "$file" | grep -q '^USER app$'; then
+        pass "$df prod runs as USER app"
+    else
+        fail "$df: prod stage missing 'USER app'"
+    fi
+done
+
+# FrankenPHP binds :80 as root and drops privileges itself — no USER in prod
+if dockerfile_prod_stage "$PROJECT_ROOT/templates/dockerfiles/php.Dockerfile" | grep -q '^USER '; then
+    fail "php.Dockerfile: prod stage sets USER (FrankenPHP manages privileges itself)"
+else
+    pass "php.Dockerfile prod has no USER (FrankenPHP drops privileges)"
+fi
+
+# =============================================================================
+# TEST: Prod stages fail fast (no keep-alive tail)
+# =============================================================================
+echo ""
+echo -e "${YELLOW}Prod stages fail fast (no tail -f /dev/null)${NC}"
+
+for df in php.Dockerfile nodejs.Dockerfile bun.Dockerfile go.Dockerfile; do
+    file="$PROJECT_ROOT/templates/dockerfiles/$df"
+    if dockerfile_prod_region "$file" | grep -q 'tail -f /dev/null'; then
+        fail "$df: 'tail -f /dev/null' between AS build and AS dev (prod must exit on crash)"
+    else
+        pass "$df"
+    fi
+done
+
+# =============================================================================
+# TEST: Build context dockerignore keeps secrets out of images
+# =============================================================================
+echo ""
+echo -e "${YELLOW}Build context dockerignore${NC}"
+
+dockerignore="$PROJECT_ROOT/templates/dockerfiles/dockerignore"
+if [[ -f "$dockerignore" ]]; then
+    pass "dockerignore exists"
+else
+    fail "templates/dockerfiles/dockerignore missing"
+fi
+if grep -q '^\.env$' "$dockerignore" 2>/dev/null; then
+    pass "dockerignore covers .env"
+else
+    fail "dockerignore does not exclude .env (DB_PASSWORD would leak into images)"
+fi
+if grep -q '^site\.yaml$' "$dockerignore" 2>/dev/null; then
+    pass "dockerignore covers site.yaml"
+else
+    fail "dockerignore does not exclude site.yaml"
+fi
+
+# =============================================================================
+# TEST: Site mode functions in lib/site.sh
+# =============================================================================
+echo ""
+echo -e "${YELLOW}Site mode functions in lib/site.sh${NC}"
+
+for fn in validate_mode get_site_mode switch_site_mode \
+          get_site_data_volume archive_site_data_volume restore_site_data_volume; do
+    if grep -q "^${fn}()" "$PROJECT_ROOT/lib/site.sh"; then
+        pass "$fn defined"
+    else
+        fail "$fn missing"
+    fi
+done
+
+# =============================================================================
+# TEST: Site mode scripts exist
+# =============================================================================
+echo ""
+echo -e "${YELLOW}Site mode scripts exist${NC}"
+
+for script in site-deploy.sh site-shell.sh site-run.sh; do
+    if [[ -f "$PROJECT_ROOT/scripts/$script" ]]; then
+        pass "$script"
+    else
+        fail "$script missing"
+    fi
+done
+
+# =============================================================================
+# TEST: Data volume safety nets (delete archives, backup includes data)
+# =============================================================================
+echo ""
+echo -e "${YELLOW}Data volume safety nets${NC}"
+
+if grep -q 'archive_site_data_volume' "$PROJECT_ROOT/scripts/site-delete.sh"; then
+    pass "site-delete.sh archives app-data before deletion"
+else
+    fail "site-delete.sh does not archive the app-data volume"
+fi
+
+if grep -q 'data\.tar\.gz' "$PROJECT_ROOT/scripts/site-backup.sh"; then
+    pass "site-backup.sh includes data.tar.gz"
+else
+    fail "site-backup.sh does not include the app-data volume (data.tar.gz)"
+fi
+
+# =============================================================================
 # SUMMARY
 # =============================================================================
 echo ""
