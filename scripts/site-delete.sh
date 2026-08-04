@@ -29,6 +29,9 @@ show_help() {
     echo "Without --with-db, interactive mode offers to delete the database"
     echo "if one exists; --force alone never touches the database."
     echo ""
+    echo "The site's data volume (prod sites: /app/data), if any, is always"
+    echo "archived to backups/ before removal (even with --force)."
+    echo ""
     echo "Existing sites:"
     list_sites
 }
@@ -151,12 +154,53 @@ while IFS= read -r _domain; do
     [[ -n "$_domain" ]] && SITE_DOMAINS+=("$_domain")
 done < <(get_site_domains "$SITE_DIR")
 
+# Prod sites keep persistent data (SQLite, uploads) in the <site>_app-data
+# volume. Like the MySQL safety dump, ALWAYS archive it to backups/ before
+# deletion — --force does not skip this. Must run before compose down, which
+# removes the volume declared in the compose file.
+HAS_DATA_VOLUME=false
+KEEP_DATA_VOLUME=false
+DATA_VOLUME=$(get_site_data_volume "$SITE_NAME")
+if site_data_volume_exists "$SITE_NAME"; then
+    HAS_DATA_VOLUME=true
+    mkdir -p "$BACKUPS_DIR"
+    DATA_ARCHIVE="$BACKUPS_DIR/${SITE_NAME}_data_$(date +%Y%m%d_%H%M%S).tar.gz"
+    log_info "Saving data volume '$DATA_VOLUME'..."
+    if archive_site_data_volume "$SITE_NAME" "$DATA_ARCHIVE"; then
+        log_ok "Safety archive saved: $DATA_ARCHIVE"
+    else
+        log_warn "Failed to archive data volume before deletion"
+        if [[ "$FORCE" != true ]] && ! confirm "Remove data volume '$DATA_VOLUME' anyway (no archive)?"; then
+            log_info "Data volume kept"
+            KEEP_DATA_VOLUME=true
+        fi
+    fi
+fi
+
 # Stop container and remove the built image (down also cleans up when only the
 # image exists, e.g. sites created with --no-start after a framework install)
 if [[ -f "$SITE_DIR/compose.yaml" ]]; then
     log_info "Stopping container and removing built image..."
-    (cd "$SITE_DIR" && docker compose down --volumes --remove-orphans --rmi local 2>/dev/null) || true
+    if [[ "$KEEP_DATA_VOLUME" == true ]]; then
+        # --volumes omitted: it would delete the data volume the user chose to keep
+        (cd "$SITE_DIR" && docker compose down --remove-orphans --rmi local 2>/dev/null) || true
+    else
+        (cd "$SITE_DIR" && docker compose down --volumes --remove-orphans --rmi local 2>/dev/null) || true
+    fi
     log_ok "Container and image removed"
+fi
+
+# compose down --volumes already removes the data volume when the compose file
+# declares it; remove leftovers explicitly (failed down, missing compose.yaml)
+if [[ "$HAS_DATA_VOLUME" == true && "$KEEP_DATA_VOLUME" != true ]]; then
+    if site_data_volume_exists "$SITE_NAME"; then
+        docker volume rm "$DATA_VOLUME" >/dev/null 2>&1 || true
+    fi
+    if site_data_volume_exists "$SITE_NAME"; then
+        log_warn "Could not remove data volume '$DATA_VOLUME' (still in use?)"
+    else
+        log_ok "Data volume '$DATA_VOLUME' removed"
+    fi
 fi
 
 # Delete the database (with a safety dump first)

@@ -25,7 +25,7 @@ Tickets :
 - [x] T6 — `site-shell.sh` / `site-run.sh` (commandes dans les conteneurs, zéro install hôte)
 - [x] T7 — Déploiement git : `--from-git`, `site-deploy.sh` (git conteneurisé)
 - [x] T8 — Bascule de mode via `site-update.sh --mode`, colonne mode dans `site-list.sh`
-- [ ] T9 — Volume data prod dans backup/restore (SQLite)
+- [x] T9 — Volume data prod dans backup/restore (SQLite)
 - [ ] T10 — Tests smoke des deux modes + lint shellcheck via Docker
 - [ ] T11 — Documentation (README, CLAUDE.md)
 

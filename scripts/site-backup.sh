@@ -9,6 +9,7 @@
 
 # Load libraries
 source "$(dirname "$0")/../lib/common.sh"
+source "$(dirname "$0")/../lib/site.sh"
 source "$(dirname "$0")/../lib/database.sh"
 
 # =============================================================================
@@ -26,6 +27,8 @@ show_help() {
     echo "Options:"
     echo "  --with-db     Include database dump in backup"
     echo "  --help, -h    Show this help"
+    echo ""
+    echo "The site's data volume (prod sites: /app/data) is included automatically."
     echo ""
     echo "Backups are stored in: $BACKUPS_DIR"
     echo ""
@@ -101,6 +104,22 @@ mkdir -p "$BACKUP_DIR"
 log_info "Backing up site files..."
 cp -r "$SITE_DIR" "$BACKUP_DIR/site"
 log_ok "Site files backed up"
+
+# Backup the data volume if the site has one (prod sites keep SQLite databases
+# and uploads in <site>_app-data, mounted at /app/data)
+if site_data_volume_exists "$SITE_NAME"; then
+    DATA_VOLUME=$(get_site_data_volume "$SITE_NAME")
+    log_info "Backing up data volume '$DATA_VOLUME'..."
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${SITE_NAME}$"; then
+        log_warn "Container is running - live SQLite databases may be captured mid-write"
+        log_info "Stop the container first for a guaranteed-consistent backup"
+    fi
+    if archive_site_data_volume "$SITE_NAME" "$BACKUP_DIR/data.tar.gz"; then
+        log_ok "Data volume backed up"
+    else
+        log_warn "Failed to backup data volume"
+    fi
+fi
 
 # Backup database if requested
 if [[ "$WITH_DB" == true ]]; then

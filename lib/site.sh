@@ -874,6 +874,68 @@ switch_site_mode() {
 }
 
 # =============================================================================
+# SITE DATA VOLUME
+# =============================================================================
+
+# Name of a site's persistent data volume. Prod composes declare an `app-data`
+# volume mounted at /app/data (SQLite, uploads); docker compose prefixes it
+# with the project name, which is the site directory name.
+# Usage: get_site_data_volume <site_name>
+get_site_data_volume() {
+    echo "${1}_app-data"
+}
+
+# Check if a site's data volume exists (dev sites have none)
+# Usage: site_data_volume_exists <site_name>
+site_data_volume_exists() {
+    docker volume inspect "$(get_site_data_volume "$1")" &>/dev/null
+}
+
+# Archive the contents of a site's data volume to a gzipped tarball (mode 600).
+# tar runs in a temporary alpine container and streams to stdout: nothing is
+# required on the host and the archive is owned by the invoking user (a bind
+# mount would leave a root-owned file and needs a Docker-shared host path).
+# Callers must check site_data_volume_exists first: mounting a missing volume
+# would silently create it empty.
+# Usage: archive_site_data_volume <site_name> <output_file.tar.gz>
+# Returns: 0 on success, 1 on failure (partial output removed)
+archive_site_data_volume() {
+    local site_name="$1"
+    local output="$2"
+
+    local volume
+    volume=$(get_site_data_volume "$site_name")
+
+    if ! docker run --rm -v "${volume}:/data:ro" alpine \
+        tar czf - -C /data . > "$output" 2>/dev/null; then
+        rm -f "$output"
+        return 1
+    fi
+
+    # Volume data may contain site secrets — restrict access like backups
+    chmod 600 "$output"
+    return 0
+}
+
+# Populate a site's data volume from a gzipped tarball, creating the volume if
+# needed. Existing content is cleared first so the result matches the archive
+# exactly (mirrors site-restore.sh replacing the site directory, not merging).
+# Usage: restore_site_data_volume <site_name> <archive.tar.gz>
+# Returns: 0 on success, 1 on failure
+restore_site_data_volume() {
+    local site_name="$1"
+    local archive="$2"
+
+    local volume
+    volume=$(get_site_data_volume "$site_name")
+
+    docker volume create "$volume" >/dev/null 2>&1 || return 1
+    docker run --rm -i -v "${volume}:/data" alpine \
+        sh -c 'find /data -mindepth 1 -delete && tar xzf - -C /data' \
+        < "$archive" 2>/dev/null
+}
+
+# =============================================================================
 # ACME CERTIFICATE CLEANUP
 # =============================================================================
 

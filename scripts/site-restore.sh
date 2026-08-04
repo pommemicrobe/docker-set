@@ -124,6 +124,13 @@ if [[ -f "$BACKUP_PARENT/database.sql" ]]; then
     HAS_DB_DUMP=true
 fi
 
+# Check for data volume archive (prod sites: /app/data contents; backups
+# created before data volumes existed simply have no archive)
+HAS_DATA_ARCHIVE=false
+if [[ -f "$BACKUP_PARENT/data.tar.gz" ]]; then
+    HAS_DATA_ARCHIVE=true
+fi
+
 # =============================================================================
 # CONFIRMATION
 # =============================================================================
@@ -134,6 +141,9 @@ echo "  Backup file: $BACKUP_FILE"
 echo "  Site name:   $SITE_NAME"
 echo "  Destination: $SITE_DIR"
 echo "  Database:    $([[ "$HAS_DB_DUMP" == true ]] && echo "yes (dump included)" || echo "no")"
+if [[ "$HAS_DATA_ARCHIVE" == true ]]; then
+    echo "  Data volume: yes (archive included)"
+fi
 
 if [[ -d "$SITE_DIR" ]]; then
     echo ""
@@ -169,6 +179,18 @@ fi
 log_info "Restoring site files..."
 cp -r "$BACKUP_CONTENT" "$SITE_DIR"
 log_ok "Site files restored"
+
+# Restore the data volume if the backup contains one (recreates <site>_app-data
+# and replaces its content with the archived /app/data)
+if [[ "$HAS_DATA_ARCHIVE" == true ]]; then
+    DATA_VOLUME=$(get_site_data_volume "$SITE_NAME")
+    log_info "Restoring data volume '$DATA_VOLUME'..."
+    if restore_site_data_volume "$SITE_NAME" "$BACKUP_PARENT/data.tar.gz"; then
+        log_ok "Data volume restored"
+    else
+        log_warn "Failed to restore data volume"
+    fi
+fi
 
 # Restore database if dump exists
 if [[ "$HAS_DB_DUMP" == true ]]; then

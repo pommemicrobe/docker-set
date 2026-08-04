@@ -213,6 +213,8 @@ Private HTTPS repos: embed a deploy token in the URL — `https://TOKEN@github.c
 
 Removes the container, the built Docker image, the site files and its Let's Encrypt certificates. With `--with-db` (or on interactive confirmation), the site's MySQL database and user are also deleted — a safety dump is saved to `backups/` first. `--force` alone never touches the database.
 
+Prod sites: the `<site>_app-data` volume is removed too, but a safety archive `backups/<site>_data_<timestamp>.tar.gz` is always written first (even with `--force`). Restore it manually with `docker run --rm -i -v <site>_app-data:/data alpine tar xzf - -C /data < archive.tar.gz`.
+
 ### Backup a Site
 
 ```bash
@@ -223,7 +225,7 @@ Removes the container, the built Docker image, the site files and its Let's Encr
 ./scripts/site-backup.sh <name> --with-db
 ```
 
-Backups are stored as `backups/<name>_<timestamp>.tar.gz` with `chmod 600` (they contain `.env` secrets).
+Backups are stored as `backups/<name>_<timestamp>.tar.gz` with `chmod 600` (they contain `.env` secrets). For prod sites, the `/app/data` volume is embedded as `data.tar.gz` and recreated on restore — stop the container first for a guaranteed-consistent SQLite backup (a live capture may be mid-write).
 
 ### Restore a Site
 
