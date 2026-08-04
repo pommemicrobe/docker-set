@@ -2,6 +2,7 @@ services:
   SERVICE_NAME:
     build:
       context: .
+      target: dev
       args:
         BUN_VERSION: ${BUN_VERSION:-1.3}
     container_name: ${SITE_NAME}
