@@ -3,7 +3,8 @@
 # site-update.sh - Update an existing site's container
 #
 # Rebuilds the image with a freshly pulled base image and recreates the
-# container. Can also change the runtime version and resource limits.
+# container. Can also change the runtime version, resource limits and
+# site mode (dev/prod).
 #
 # Usage:
 #   ./scripts/site-update.sh                      # Interactive mode
@@ -24,7 +25,7 @@ show_help() {
     echo ""
     echo "Update a site's container: rebuild its image with a freshly pulled"
     echo "base image and recreate the container. Optionally change the runtime"
-    echo "version or resource limits first."
+    echo "version, resource limits or site mode (dev/prod) first."
     echo ""
     echo "Run without arguments for interactive mode."
     echo ""
@@ -35,15 +36,25 @@ show_help() {
     echo "  --go-version <ver>    Change Go version (${GO_VERSIONS[*]})"
     echo "  --cpu <num>           Change CPU limit (e.g., 0.5, 1, 2)"
     echo "  --memory <size>       Change memory limit (e.g., 256M, 512M, 1G)"
+    echo "  --mode <dev|prod>     Switch site mode (regenerates compose.yaml from template)"
+    echo "  --force               Skip the mode switch confirmation prompt"
     echo "  --no-cache            Rebuild the image from scratch (no layer cache)"
     echo "  --all                 Rebuild all sites (no config changes allowed)"
     echo "  --help, -h            Show this help"
+    echo ""
+    echo "Mode switch:"
+    echo "  dev:  live code via ./app bind mount, image contains the toolchain"
+    echo "  prod: code baked into the image at build time, no bind mount"
+    echo "  compose.yaml is regenerated from the template (manual edits are lost,"
+    echo "  the previous compose.yaml/Dockerfile are kept as *.bak)"
     echo ""
     echo "Examples:"
     echo "  $0                                   # Interactive"
     echo "  $0 my-blog                           # Rebuild with latest base image"
     echo "  $0 my-blog --php-version 8.4         # Upgrade PHP and rebuild"
     echo "  $0 my-blog --cpu 2 --memory 1G       # Raise resource limits"
+    echo "  $0 my-blog --mode prod               # Switch to production mode"
+    echo "  $0 my-blog --mode dev --force        # Back to dev mode, no prompt"
     echo "  $0 my-blog --no-cache                # Full rebuild, no cache"
     echo "  $0 --all                             # Refresh every site's base image"
     echo ""
@@ -241,6 +252,9 @@ RUNTIME_VERSION=""
 VERSION_RUNTIME=""
 NEW_CPU=""
 NEW_MEMORY=""
+NEW_MODE=""
+SWITCHED_MODE=""
+FORCE=false
 NO_CACHE=false
 ALL=false
 
@@ -271,6 +285,14 @@ while [[ $# -gt 0 ]]; do
             NEW_MEMORY="$2"
             shift 2
             ;;
+        --mode)
+            NEW_MODE="$2"
+            shift 2
+            ;;
+        --force)
+            FORCE=true
+            shift
+            ;;
         --no-cache)
             NO_CACHE=true
             shift
@@ -300,9 +322,9 @@ require_docker
 # =============================================================================
 
 if [[ "$ALL" == true ]]; then
-    if [[ -n "$SITE_NAME" || -n "$RUNTIME_VERSION" || -n "$NEW_CPU" || -n "$NEW_MEMORY" ]]; then
+    if [[ -n "$SITE_NAME" || -n "$RUNTIME_VERSION" || -n "$NEW_CPU" || -n "$NEW_MEMORY" || -n "$NEW_MODE" ]]; then
         log_error "--all cannot be combined with a site name or config changes"
-        log_info "Config changes (version, cpu, memory) are per-site"
+        log_info "Config changes (version, cpu, memory, mode) are per-site"
         exit 1
     fi
     update_all_sites "$NO_CACHE"
@@ -356,11 +378,35 @@ if [[ -n "$NEW_MEMORY" ]] && ! validate_memory_limit "$NEW_MEMORY"; then
     exit 1
 fi
 
+# Validate a requested mode switch
+if [[ -n "$NEW_MODE" ]] && ! validate_mode "$NEW_MODE"; then
+    exit 1
+fi
+
 # =============================================================================
 # UPDATE
 # =============================================================================
 
 print_header "Updating site '$SITE_NAME'"
+
+# Apply mode switch first: the rebuild below must use the new build target
+if [[ -n "$NEW_MODE" ]]; then
+    CURRENT_MODE=$(get_site_mode "$SITE_DIR")
+    if [[ "$NEW_MODE" == "$CURRENT_MODE" ]]; then
+        log_info "Site is already in $NEW_MODE mode, nothing to change"
+    else
+        log_warn "Switching mode REGENERATES compose.yaml and Dockerfile from the template:"
+        log_warn "manual edits to those files will be lost (previous versions kept as *.bak)"
+        if [[ "$FORCE" != true ]] && ! confirm "Switch '$SITE_NAME' from $CURRENT_MODE to $NEW_MODE mode?"; then
+            log_info "Cancelled"
+            exit 0
+        fi
+        if ! switch_site_mode "$SITE_DIR" "$NEW_MODE"; then
+            exit 1
+        fi
+        SWITCHED_MODE="$NEW_MODE"
+    fi
+fi
 
 # Apply version change
 if [[ -n "$RUNTIME_VERSION" ]]; then
@@ -388,4 +434,10 @@ fi
 
 echo ""
 log_ok "Site '$SITE_NAME' updated"
+if [[ "$SWITCHED_MODE" == "prod" ]]; then
+    log_info "Prod mode: the ./app bind mount is gone - code is baked into the image"
+    log_info "After changing code in app/, rebuild with: ./scripts/site-update.sh $SITE_NAME"
+elif [[ "$SWITCHED_MODE" == "dev" ]]; then
+    log_info "Dev mode: the ./app bind mount is restored - code changes apply live again"
+fi
 log_info "Old image layers may remain - clean up with: docker image prune"

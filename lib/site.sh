@@ -780,6 +780,95 @@ update_site_resources() {
     log_ok "Resource limits updated (CPU: ${cpu:-unchanged}, Memory: ${memory:-unchanged})"
 }
 
+# Switch an existing site between dev and prod mode: regenerate compose.yaml,
+# Dockerfile and .dockerignore from the template, then re-apply the site's
+# configuration from its manifest. Manual edits to compose.yaml are lost; the
+# previous compose.yaml and Dockerfile are kept as *.bak (overwritten each
+# switch). Requires a manifest with a template key: pre-manifest sites cannot
+# switch because their creation parameters are unknown.
+# Usage: switch_site_mode <site_dir> <new_mode>
+switch_site_mode() {
+    local site_dir="$1"
+    local new_mode="$2"
+
+    local template
+    template=$(manifest_get "$site_dir" "template" || true)
+    if [[ -z "$template" ]]; then
+        log_error "Site has no manifest (or no template key) - cannot switch mode"
+        log_info "Sites created before manifests existed must be recreated to change mode"
+        return 1
+    fi
+
+    local template_dir="$TEMPLATES_DIR/$template"
+    if [[ ! -d "$template_dir" ]]; then
+        log_error "Template '$template' not found in $TEMPLATES_DIR"
+        return 1
+    fi
+
+    # Check both sources before touching the site so a failure changes nothing
+    local compose_src="$template_dir/compose.yaml"
+    if [[ "$new_mode" == "prod" ]]; then
+        compose_src="$template_dir/compose.prod.yaml"
+    fi
+    if [[ ! -f "$compose_src" ]]; then
+        log_error "Mode '$new_mode' not yet available for template '$template' (no $(basename "$compose_src"))"
+        return 1
+    fi
+
+    local runtime dockerfile_src
+    runtime=$(get_template_runtime "$template")
+    dockerfile_src="$TEMPLATES_DIR/dockerfiles/${runtime}.Dockerfile"
+    if [[ ! -f "$dockerfile_src" ]]; then
+        log_error "Shared Dockerfile not found: $dockerfile_src"
+        return 1
+    fi
+
+    # Recover the creation parameters from the manifest
+    local site_name cpu memory ssl autostart
+    site_name=$(manifest_get "$site_dir" "name" || true)
+    [[ -z "$site_name" ]] && site_name=$(basename "$site_dir")
+    cpu=$(manifest_get "$site_dir" "cpu_limit" || true)
+    memory=$(manifest_get "$site_dir" "memory_limit" || true)
+    ssl=$(manifest_get "$site_dir" "ssl" || true)
+    autostart=$(manifest_get "$site_dir" "autostart" || true)
+
+    local no_ssl=false no_autostart=false
+    [[ "$ssl" == "false" ]] && no_ssl=true
+    [[ "$autostart" == "false" ]] && no_autostart=true
+
+    # Keep the previous files so manual edits stay recoverable
+    if [[ -f "$site_dir/compose.yaml" ]]; then
+        cp "$site_dir/compose.yaml" "$site_dir/compose.yaml.bak" || return 1
+    fi
+    if [[ -f "$site_dir/Dockerfile" ]]; then
+        cp "$site_dir/Dockerfile" "$site_dir/Dockerfile.bak" || return 1
+    fi
+
+    # Fresh copies from the templates (same sources copy_template uses)
+    cp "$compose_src" "$site_dir/compose.yaml" || return 1
+    cp "$dockerfile_src" "$site_dir/Dockerfile" || return 1
+    cp "$TEMPLATES_DIR/dockerfiles/dockerignore" "$site_dir/.dockerignore" || return 1
+
+    # Re-apply the site configuration, mirroring site-create.sh
+    local compose_file="$site_dir/compose.yaml"
+    configure_compose "$compose_file" "$site_name" "${cpu:-1}" "${memory:-512M}" "$no_ssl" "$no_autostart"
+
+    if is_traefik_template "$template"; then
+        local aliases_csv redirect_aliases
+        aliases_csv=$(manifest_get_aliases "$site_dir" | paste -sd ',' -)
+        redirect_aliases=$(manifest_get "$site_dir" "redirect_aliases" || true)
+        [[ "$redirect_aliases" == "true" ]] || redirect_aliases=false
+        if [[ -n "$aliases_csv" ]]; then
+            configure_aliases "$compose_file" "$aliases_csv" "$redirect_aliases" "$no_ssl"
+        fi
+    fi
+
+    validate_compose "$site_dir" || return 1
+
+    manifest_set "$site_dir" "mode" "$new_mode" || return 1
+    log_ok "Site switched to $new_mode mode (previous compose.yaml/Dockerfile kept as *.bak)"
+}
+
 # =============================================================================
 # ACME CERTIFICATE CLEANUP
 # =============================================================================

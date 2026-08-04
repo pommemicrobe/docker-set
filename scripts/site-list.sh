@@ -7,6 +7,7 @@
 
 # Load libraries
 source "$(dirname "$0")/../lib/common.sh"
+source "$(dirname "$0")/../lib/site.sh"
 
 # =============================================================================
 # HELP
@@ -93,14 +94,14 @@ if [[ "$JSON_OUTPUT" == true ]]; then
         fi
 
         # Read template from site.yaml
-        template=""
-        if [[ -f "$site_dir/site.yaml" ]]; then
-            template=$(grep "^template:" "$site_dir/site.yaml" 2>/dev/null | sed 's/template: *"\?\([^"]*\)"\?/\1/')
-        fi
+        template=$(manifest_get "$site_dir" "template" || true)
+
+        # Read mode from site.yaml (absent = dev)
+        mode=$(get_site_mode "$site_dir")
 
         [[ "$first" == true ]] || echo ","
         first=false
-        printf '  {"name":"%s","url":"%s","template":"%s","status":"%s"}' "$name" "$url" "$template" "$status"
+        printf '  {"name":"%s","url":"%s","template":"%s","mode":"%s","status":"%s"}' "$name" "$url" "$template" "$mode" "$status"
     done
     echo ""
     echo "]"
@@ -110,8 +111,8 @@ fi
 # Table output
 print_header "Sites"
 
-printf "  %-20s %-30s %-20s %s\n" "NAME" "URL" "TEMPLATE" "STATUS"
-printf "  %-20s %-30s %-20s %s\n" "----" "---" "--------" "------"
+printf "  %-20s %-30s %-20s %-6s %s\n" "NAME" "URL" "TEMPLATE" "MODE" "STATUS"
+printf "  %-20s %-30s %-20s %-6s %s\n" "----" "---" "--------" "----" "------"
 
 for site_dir in "$SITES_DIR"/*/; do
     [[ -d "$site_dir" ]] || continue
@@ -134,13 +135,13 @@ for site_dir in "$SITES_DIR"/*/; do
     fi
 
     # Read template from site.yaml
-    template="-"
-    if [[ -f "$site_dir/site.yaml" ]]; then
-        template=$(grep "^template:" "$site_dir/site.yaml" 2>/dev/null | sed 's/template: *"\?\([^"]*\)"\?/\1/')
-        [[ -z "$template" ]] && template="-"
-    fi
+    template=$(manifest_get "$site_dir" "template" || true)
+    [[ -z "$template" ]] && template="-"
 
-    printf "  %-20s %-30s %-20s " "$name" "$url" "$template"
+    # Read mode from site.yaml (absent = dev)
+    mode=$(get_site_mode "$site_dir")
+
+    printf "  %-20s %-30s %-20s %-6s " "$name" "$url" "$template" "$mode"
     echo -e "$status"
 done
 
