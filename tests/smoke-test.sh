@@ -693,6 +693,165 @@ else
 fi
 
 # =============================================================================
+# TEST: API control plane sources (Phase 2) — static, no Docker
+# =============================================================================
+echo ""
+echo -e "${YELLOW}API control plane sources${NC}"
+
+api_dir="$PROJECT_ROOT/api"
+
+for f in go.mod main.go handlers.go jobs.go auth.go Dockerfile; do
+    if [[ -f "$api_dir/$f" ]]; then
+        pass "api/$f exists"
+    else
+        fail "api/$f missing"
+    fi
+done
+
+if grep -q '^module docker-set/api$' "$api_dir/go.mod" 2>/dev/null; then
+    pass "go.mod declares module docker-set/api"
+else
+    fail "go.mod missing 'module docker-set/api'"
+fi
+
+# stdlib-only invariant: any require directive means a dependency crept in
+if grep -q 'require' "$api_dir/go.mod" 2>/dev/null; then
+    fail "go.mod has require directives (API must stay stdlib-only)"
+else
+    pass "go.mod is stdlib-only (no require)"
+fi
+
+if [[ -f "$PROJECT_ROOT/scripts/api-setup.sh" && -x "$PROJECT_ROOT/scripts/api-setup.sh" ]]; then
+    pass "scripts/api-setup.sh exists and is executable"
+else
+    fail "scripts/api-setup.sh missing or not executable"
+fi
+
+# =============================================================================
+# TEST: API Dockerfile is multi-stage with a gofmt/vet gate
+# =============================================================================
+echo ""
+echo -e "${YELLOW}API Dockerfile (gofmt/vet gate, runtime deps)${NC}"
+
+api_df="$api_dir/Dockerfile"
+if grep -qE '^FROM .* AS build$' "$api_df" 2>/dev/null && grep -qE '^FROM .* AS prod$' "$api_df" 2>/dev/null; then
+    pass "Dockerfile is multi-stage (build + prod)"
+else
+    fail "Dockerfile missing build/prod stages"
+fi
+
+if grep -q 'gofmt -l' "$api_df" 2>/dev/null && grep -q 'go vet' "$api_df" 2>/dev/null; then
+    pass "Dockerfile enforces gofmt -l + go vet"
+else
+    fail "Dockerfile missing gofmt -l/go vet gate"
+fi
+
+if grep -q 'CGO_ENABLED=0' "$api_df" 2>/dev/null; then
+    pass "build is static (CGO_ENABLED=0)"
+else
+    fail "Dockerfile missing CGO_ENABLED=0"
+fi
+
+# Final stage must stay on alpine (minimal runtime, apk-installed CLI tools)
+api_last_from=$(grep '^FROM ' "$api_df" 2>/dev/null | tail -1)
+if [[ "$api_last_from" == FROM\ alpine:* ]]; then
+    pass "final stage runs on alpine"
+else
+    fail "final stage is not alpine: ${api_last_from:-<none>}"
+fi
+
+if grep -q '^HEALTHCHECK ' "$api_df" 2>/dev/null; then
+    pass "Dockerfile has a HEALTHCHECK"
+else
+    fail "Dockerfile missing HEALTHCHECK"
+fi
+
+if grep -qE 'apk add .*docker-cli' "$api_df" 2>/dev/null && grep -qE 'apk add .*bash' "$api_df" 2>/dev/null; then
+    pass "prod stage installs docker-cli + bash"
+else
+    fail "prod stage missing docker-cli/bash"
+fi
+
+# =============================================================================
+# TEST: API compose binds localhost, mounts the socket, hardened
+# =============================================================================
+echo ""
+echo -e "${YELLOW}API compose (config/api/compose.yaml)${NC}"
+
+api_compose="$PROJECT_ROOT/config/api/compose.yaml"
+if grep -q '127.0.0.1:9000:9000' "$api_compose" 2>/dev/null; then
+    pass "binds 127.0.0.1:9000 (localhost only)"
+else
+    fail "compose does not bind 127.0.0.1:9000"
+fi
+
+if grep -q '/var/run/docker.sock:/var/run/docker.sock' "$api_compose" 2>/dev/null; then
+    pass "mounts the Docker socket"
+else
+    fail "compose does not mount the Docker socket"
+fi
+
+# Repo mounted at the SAME path on both sides: bind mounts issued by the
+# scripts (docker compose in sites/<name>) must resolve on the host daemon
+if grep -qF '${DOCKER_SET_ROOT}:${DOCKER_SET_ROOT}' "$api_compose" 2>/dev/null; then
+    pass "repo mounted at the same host/container path"
+else
+    fail "compose missing \${DOCKER_SET_ROOT}:\${DOCKER_SET_ROOT} same-path mount"
+fi
+
+if grep -q 'no-new-privileges' "$api_compose" 2>/dev/null; then
+    pass "sets no-new-privileges"
+else
+    fail "compose missing no-new-privileges"
+fi
+
+if grep -q 'init: true' "$api_compose" 2>/dev/null; then
+    pass "sets init: true"
+else
+    fail "compose missing init: true"
+fi
+
+# =============================================================================
+# TEST: API .env.dist keys and .gitignore coverage
+# =============================================================================
+echo ""
+echo -e "${YELLOW}API .env.dist keys${NC}"
+
+api_env="$PROJECT_ROOT/config/api/.env.dist"
+for key in API_TOKEN WEBHOOK_SECRET DOCKER_SET_ROOT; do
+    if grep -qE "^${key}=" "$api_env" 2>/dev/null; then
+        pass ".env.dist has $key"
+    else
+        fail ".env.dist missing $key"
+    fi
+done
+
+if grep -qE '^config/api/\.env$' "$PROJECT_ROOT/.gitignore" 2>/dev/null; then
+    pass ".gitignore ignores config/api/.env"
+else
+    fail ".gitignore does not ignore config/api/.env"
+fi
+
+# =============================================================================
+# TEST: API auth primitives (constant-time comparisons)
+# =============================================================================
+echo ""
+echo -e "${YELLOW}API auth primitives${NC}"
+
+api_auth="$api_dir/auth.go"
+if grep -q 'subtle.ConstantTimeCompare' "$api_auth" 2>/dev/null; then
+    pass "bearer token compared with subtle.ConstantTimeCompare"
+else
+    fail "auth.go does not use subtle.ConstantTimeCompare"
+fi
+
+if grep -q 'hmac.Equal' "$api_auth" 2>/dev/null; then
+    pass "webhook signature verified with hmac.Equal"
+else
+    fail "auth.go does not use hmac.Equal"
+fi
+
+# =============================================================================
 # SUMMARY
 # =============================================================================
 echo ""

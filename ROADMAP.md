@@ -31,12 +31,21 @@ Tickets :
 
 ## Phase 2 — Control plane
 
-Un petit conteneur API (construit avec nos propres templates go ou bun) :
+Un petit conteneur API Go (stdlib uniquement) qui `argv`-exec les scripts
+whitelistés (jamais de réimplémentation), géré via `scripts/api-setup.sh` :
 
-- Endpoint webhook GitHub → `site-deploy.sh` (auto-deploy au push)
-- Endpoints REST enveloppant les scripts existants (list, create, deploy, logs)
-- Socket Docker accédé via un proxy filtrant (docker-socket-proxy), jamais
-  exposé brut ; API accessible uniquement via VPN ou derrière une auth
+- [x] Endpoints REST enveloppant les scripts (`/api/sites` list/create,
+  `/api/sites/{name}/deploy`, `/api/sites/{name}/logs`, `/api/jobs`) sous auth
+  Bearer, jobs asynchrones en mémoire
+- [x] Webhook GitHub `/hooks/github/{site}` → `site-deploy.sh` (HMAC SHA-256,
+  filtré sur la branche `source_branch` du manifest)
+- [x] `scripts/api-setup.sh` : génération de `config/api/.env` (secrets
+  aléatoires, chmod 600), build + démarrage, attente de `/health`
+
+Le proxy Docker filtrant (docker-socket-proxy) a été abandonné au profit d'un
+binding localhost + scripts whitelistés + auth token/HMAC : la frontière de
+sécurité est la surface de l'API, pas le socket (`compose build` + bind mounts
+sont de toute façon root-equivalents).
 
 Les scripts restent la seule source de vérité ; l'API ne réimplémente aucune
 logique.
@@ -76,6 +85,8 @@ reste sur étagère (Dozzle, Uptime Kuma) — pas redéveloppée ici.
   wrappers `sh -c` de démarrage).
 - Laravel en prod nécessite un volume `storage/` en plus de la convention
   `/app/data` (documenté, non automatisé).
+- Le conteneur API tourne en root (socket Docker + écritures dans le repo) ;
+  les sites créés via l'API appartiennent donc à root sur un hôte Linux.
 
 ## Idées futures
 

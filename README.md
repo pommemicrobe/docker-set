@@ -6,9 +6,11 @@ Docker environment for managing multiple web applications with shared infrastruc
 
 ```
 docker-set/
+├── api/                      # Control plane API source (Go, stdlib only)
 ├── config/                   # Infrastructure configuration
 │   ├── traefik/              # Reverse proxy + SSL
 │   ├── mysql/                # Shared database
+│   ├── api/                  # Control plane API (compose.yaml + .env)
 │   └── default-site.dist/    # Templates for the default site (IP access)
 ├── lib/                      # Shared bash libraries
 │   ├── common.sh             # Colors, logging, validation, utilities
@@ -26,7 +28,8 @@ docker-set/
 │   ├── site-list.sh          # List sites and their status
 │   ├── site-backup.sh        # Backup site files + DB
 │   ├── site-restore.sh       # Restore from a backup
-│   └── default-site.sh       # Configure default response for IP access
+│   ├── default-site.sh       # Configure default response for IP access
+│   └── api-setup.sh          # Set up + start the control plane API
 ├── templates/                # Site templates
 │   ├── dockerfiles/          # Shared multi-stage Dockerfiles (one per runtime)
 │   ├── php-traefik/          # compose.yaml + compose.prod.yaml + .env.dist
@@ -405,6 +408,77 @@ In dev mode `app/` is bind-mounted (edits apply live); in prod mode it's copied 
 
 ---
 
+## Control Plane API (Phase 2)
+
+An optional container (`config/api/`, source in `api/` — Go, stdlib only) exposing a small HTTP API that **wraps the management scripts** — it never reimplements their logic, every action is an `argv` exec of a whitelisted script. It binds to `127.0.0.1` only by default.
+
+### Setup
+
+```bash
+./scripts/api-setup.sh              # Create config/api/.env (+ secrets), build, start, wait for /health
+./scripts/api-setup.sh --no-start   # Prepare config/api/.env only (no build/start)
+./scripts/api-setup.sh --force      # Regenerate .env (old one saved to .env.bak)
+```
+
+`api-setup.sh` generates `config/api/.env` (`chmod 600`) with `DOCKER_SET_ROOT` set to the repo path and a random `API_TOKEN` + `WEBHOOK_SECRET` (`openssl rand -hex 32`). An existing `.env` is kept unless `--force` is given. The generated API token is printed once at creation; afterwards read it from `config/api/.env`. The API listens on `http://127.0.0.1:9000`. Stop it with `cd config/api && docker compose down`.
+
+### Endpoints
+
+| Method & path | Auth | Purpose |
+|---------------|------|---------|
+| `GET /health` | none | Liveness → `{"status":"ok"}` |
+| `GET /api/sites` | Bearer | List sites (relays `site-list.sh --json`) |
+| `POST /api/sites` | Bearer | Create a site (async job) → `202 {job_id}`; `no_start` defaults to `true` (create fast, start via deploy) |
+| `POST /api/sites/{name}/deploy` | Bearer | Deploy a site (async job, optional `{"no_cache":true}`) → `202 {job_id}`; `409` when a job is active for the site |
+| `GET /api/sites/{name}/logs?tail=N` | Bearer | Container logs (`text/plain`, `N` 1–5000, default 100) |
+| `GET /api/jobs` | Bearer | Most recent 100 jobs |
+| `GET /api/jobs/{id}` | Bearer | One job + buffered output (last 64 KB) |
+| `POST /hooks/github/{site}` | HMAC | GitHub push webhook → deploy |
+
+**Auth model:** `/api/*` requires `Authorization: Bearer <API_TOKEN>` (constant-time compare). `/hooks/github/*` requires a valid `X-Hub-Signature-256` HMAC-SHA256 of the raw body against `WEBHOOK_SECRET`. The two credentials are independent — the webhook secret grants no `/api` access and vice versa. `/health` is unauthenticated. The server refuses to start if either secret is missing or under 32 chars.
+
+```bash
+TOKEN=$(grep '^API_TOKEN=' config/api/.env | cut -d= -f2-)
+
+# List
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:9000/api/sites
+
+# Create (name, url, template required; mode/from_git/branch/with_db/no_ssl/
+# no_start/cpu/memory/aliases/redirect_aliases/framework optional)
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"my-app","url":"app.example.com","template":"go-traefik","mode":"prod","from_git":"https://github.com/me/app.git"}' \
+  http://127.0.0.1:9000/api/sites
+
+# Deploy, then poll the job
+curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:9000/api/sites/my-app/deploy
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:9000/api/jobs/<job_id>
+```
+
+Create/deploy run **asynchronously** as jobs (global concurrency `MAX_CONCURRENT_DEPLOYS`, default 1; one job per site — a second returns `409` with the existing `job_id`). Poll `/api/jobs/{id}` for state (`queued`/`running`/`success`/`failed`) and output.
+
+### GitHub Webhook (auto-deploy on push)
+
+In the repo: **Settings → Webhooks → Add webhook**.
+
+1. **Payload URL**: `https://<your-host>/hooks/github/<site-name>`
+2. **Content type**: `application/json`
+3. **Secret**: the `WEBHOOK_SECRET` value from `config/api/.env`
+4. **Events**: *Just the push event*
+
+A push deploys only when it targets the site's tracked branch — `source_branch` from `sites/<site>/site.yaml`, falling back to the payload's default branch (other branches return `200 {"skipped":"branch"}`). `ping` returns `200`; a bad signature returns `401`.
+
+### Security & Exposure
+
+The container mounts the **Docker socket** and the repository — that is **root-equivalent on the host** (a filtering proxy is pointless: `compose build` + bind mounts are already root-equivalent). The boundary is therefore *whitelisted endpoints + auth + localhost binding*, not the socket. Keep `/api` on localhost (reach it via SSH/VPN); never expose it publicly. Only the webhook needs to be reachable from GitHub — uncomment the commented Traefik labels block in `config/api/compose.yaml` (it routes `PathPrefix(/hooks/)` only, `/api` and `/health` stay unrouted). `/api` stays behind the Bearer token regardless.
+
+### Caveats
+
+- Restarting the API container kills in-flight create/deploy jobs — re-run the deploy, the scripts tolerate it.
+- Job history lives in memory only; it is lost on restart.
+- Port-conflict detection for standalone templates is skipped for sites created through the API (`lsof`/`ss` are absent in the container).
+
+---
+
 ## Security
 
 - **MySQL**: passwords passed via `MYSQL_PWD` env var (never visible in `ps`).
@@ -470,7 +544,8 @@ Only `/app/data` (named volume) persists. Move SQLite files and uploads there �
 ## Tests
 
 ```bash
-./tests/smoke-test.sh
+./tests/smoke-test.sh   # Static validation (no Docker needed)
+./tests/lint.sh         # shellcheck + gofmt/go vet over api/ (via Docker)
 ```
 
-Validates script syntax, template structure, placeholders, security options, framework metadata, and that MySQL credentials are never passed via `-p` arguments.
+The smoke test validates script syntax, template structure, placeholders, security options, framework metadata, control plane API invariants (stdlib-only `go.mod`, Dockerfile gofmt/vet gate, localhost binding, constant-time auth primitives), and that MySQL credentials are never passed via `-p` arguments.
