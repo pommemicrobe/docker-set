@@ -454,7 +454,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:9000/api/sites/m
 curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:9000/api/jobs/<job_id>
 ```
 
-Create/deploy run **asynchronously** as jobs (global concurrency `MAX_CONCURRENT_DEPLOYS`, default 1; one job per site — a second returns `409` with the existing `job_id`). Poll `/api/jobs/{id}` for state (`queued`/`running`/`success`/`failed`) and output.
+Create/deploy run **asynchronously** as jobs (global concurrency `MAX_CONCURRENT_DEPLOYS`, default 1; one job per site — a second returns `409` with the existing `job_id`; when queued+running jobs reach `MAX_QUEUED_JOBS`, default 100, new ones get `429`). Poll `/api/jobs/{id}` for state (`queued`/`running`/`success`/`failed`) and output.
 
 ### GitHub Webhook (auto-deploy on push)
 

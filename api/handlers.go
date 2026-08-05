@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -19,6 +20,11 @@ import (
 )
 
 const maxBodyBytes = 1 << 20 // 1 MB request body cap
+
+// syncExecTimeout bounds the synchronous docker/script execs (site list, logs)
+// so a hung CLI cannot pin a request goroutine. Async jobs use their own
+// (shutdown-scoped) context and are unaffected.
+const syncExecTimeout = 30 * time.Second
 
 // siteNameRe mirrors the validation in lib/common.sh closely enough to
 // reject anything unsafe before a name reaches the filesystem or an argv.
@@ -92,18 +98,20 @@ func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 // =============================================================================
 
 func (s *server) handleListSites(w http.ResponseWriter, r *http.Request) {
-	cmd := exec.CommandContext(r.Context(), "bash", "scripts/site-list.sh", "--json")
+	ctx, cancel := context.WithTimeout(r.Context(), syncExecTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", "scripts/site-list.sh", "--json")
 	cmd.Dir = s.cfg.dir
 	cmd.Stdin = nil
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	// On failure the stderr is logged server-side only; the client gets a
+	// generic 502 so script internals never leak over the wire.
 	if err := cmd.Run(); err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]string{
-			"error":  "site-list.sh failed: " + err.Error(),
-			"stderr": stderr.String(),
-		})
+		s.logger.Error("site-list.sh failed", "error", err, "stderr", stderr.String())
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed to list sites"})
 		return
 	}
 
@@ -112,10 +120,8 @@ func (s *server) handleListSites(w http.ResponseWriter, r *http.Request) {
 		// Defensive: strip any non-JSON noise around the array before relaying
 		out = extractJSONArray(out)
 		if !json.Valid(out) {
-			writeJSON(w, http.StatusBadGateway, map[string]string{
-				"error":  "site-list.sh returned invalid JSON",
-				"stderr": stderr.String(),
-			})
+			s.logger.Error("site-list.sh returned invalid JSON", "stderr", stderr.String())
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed to list sites"})
 			return
 		}
 	}
@@ -183,6 +189,32 @@ func (s *server) handleCreateSite(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid mode (dev or prod)"})
 		return
 	}
+	if req.Framework != "" {
+		frameworks, err := s.listFrameworks()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot list frameworks: " + err.Error()})
+			return
+		}
+		if !slices.Contains(frameworks, req.Framework) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error":      "unknown framework",
+				"frameworks": frameworks,
+			})
+			return
+		}
+	}
+	if req.Branch != "" && !validBranch(req.Branch) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `invalid branch (allowed: letters, digits, . _ / -; no leading dash, no "..")`})
+		return
+	}
+	if req.FromGit != "" && !validGitURL(req.FromGit) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid from_git (expected https://, git:// or ssh:// URL, or user@host:path)"})
+		return
+	}
+	if req.Aliases != "" && !validAliases(req.Aliases) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid aliases (comma-separated hostnames; no leading dash)"})
+		return
+	}
 
 	argv := []string{"bash", "scripts/site-create.sh", req.Name, req.URL, req.Template}
 	if req.Mode != "" {
@@ -232,6 +264,23 @@ func (s *server) listTemplates() ([]string, error) {
 	var names []string
 	for _, e := range entries {
 		if e.IsDir() && e.Name() != "dockerfiles" {
+			names = append(names, e.Name())
+		}
+	}
+	return names, nil
+}
+
+// listFrameworks returns the framework directories under frameworks/ (mirrors
+// the script's own -d "$FRAMEWORKS_DIR/$name" check); non-directory entries
+// such as .gitkeep are skipped.
+func (s *server) listFrameworks() ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(s.cfg.dir, "frameworks"))
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
 			names = append(names, e.Name())
 		}
 	}
@@ -288,8 +337,10 @@ func (s *server) handleSiteLogs(w http.ResponseWriter, r *http.Request) {
 		tail = n
 	}
 
+	ctx, cancel := context.WithTimeout(r.Context(), syncExecTimeout)
+	defer cancel()
 	// The container carries the site name (container_name: ${SITE_NAME})
-	cmd := exec.CommandContext(r.Context(), "docker", "logs", "--tail", strconv.Itoa(tail), name)
+	cmd := exec.CommandContext(ctx, "docker", "logs", "--tail", strconv.Itoa(tail), name)
 	cmd.Dir = s.cfg.dir
 	cmd.Stdin = nil
 	out, err := cmd.CombinedOutput()
@@ -305,9 +356,15 @@ func (s *server) handleSiteLogs(w http.ResponseWriter, r *http.Request) {
 // JOBS
 // =============================================================================
 
-// enqueueJob starts a job and writes the 202/409 response.
+// enqueueJob starts a job and writes the 202/409/429 response.
 func (s *server) enqueueJob(w http.ResponseWriter, kind, site string, argv []string) {
-	id, existing := s.jobs.enqueue(kind, site, argv)
+	id, existing, err := s.jobs.enqueue(kind, site, argv)
+	if errors.Is(err, errQueueFull) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{
+			"error": "job queue is full, retry later",
+		})
+		return
+	}
 	if existing != "" {
 		writeJSON(w, http.StatusConflict, map[string]string{
 			"error":  "a job is already queued or running for this site",
@@ -416,6 +473,43 @@ func (s *server) manifestSourceBranch(site string) string {
 
 func validSiteName(name string) bool {
 	return len(name) <= maxSiteNameLen && siteNameRe.MatchString(name)
+}
+
+// branchRe constrains a git branch/ref to a safe charset before it reaches an
+// argv (leading dash and ".." are rejected separately below).
+var branchRe = regexp.MustCompile(`^[A-Za-z0-9._/-]{1,255}$`)
+
+func validBranch(b string) bool {
+	return branchRe.MatchString(b) && !strings.HasPrefix(b, "-") && !strings.Contains(b, "..")
+}
+
+// scpLikeRe matches scp-style git remotes (user@host:path); mirrors
+// validate_git_url in scripts/site-create.sh.
+var scpLikeRe = regexp.MustCompile(`^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+:.+$`)
+
+func validGitURL(u string) bool {
+	if strings.HasPrefix(u, "-") { // never let a URL be read as a flag
+		return false
+	}
+	if strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "git://") || strings.HasPrefix(u, "ssh://") {
+		return true
+	}
+	return scpLikeRe.MatchString(u)
+}
+
+// validAliases checks each comma-separated alias against the host regex; empty
+// entries are tolerated (the script filters them) and a leading dash is barred.
+func validAliases(csv string) bool {
+	for _, a := range strings.Split(csv, ",") {
+		a = strings.TrimSpace(a)
+		if a == "" {
+			continue
+		}
+		if strings.HasPrefix(a, "-") || !siteURLRe.MatchString(a) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *server) siteDirExists(name string) bool {

@@ -59,37 +59,50 @@ type jobView struct {
 	Output     string     `json:"output,omitempty"`
 }
 
+// errQueueFull is returned by enqueue when queued+running jobs reach the cap;
+// handlers translate it into a 429 response.
+var errQueueFull = errors.New("job queue is full")
+
 type jobManager struct {
-	mu     sync.Mutex
-	jobs   map[string]*job
-	order  []string          // job ids, oldest first
-	active map[string]string // site -> queued/running job id (per-site exclusion)
-	sem    chan struct{}     // global MAX_CONCURRENT_DEPLOYS semaphore
-	ctx    context.Context   // cancelled on shutdown: kills in-flight scripts
-	dir    string            // cwd for every script (DOCKER_SET_DIR)
-	logger *slog.Logger
+	mu        sync.Mutex
+	jobs      map[string]*job
+	order     []string          // job ids, oldest first
+	active    map[string]string // site -> queued/running job id (per-site exclusion)
+	sem       chan struct{}     // global MAX_CONCURRENT_DEPLOYS semaphore
+	maxQueued int               // MAX_QUEUED_JOBS: cap on queued+running jobs
+	ctx       context.Context   // cancelled on shutdown: kills in-flight scripts
+	dir       string            // cwd for every script (DOCKER_SET_DIR)
+	logger    *slog.Logger
 }
 
-func newJobManager(ctx context.Context, dir string, maxConcurrent int, logger *slog.Logger) *jobManager {
+func newJobManager(ctx context.Context, dir string, maxConcurrent, maxQueued int, logger *slog.Logger) *jobManager {
 	return &jobManager{
-		jobs:   make(map[string]*job),
-		active: make(map[string]string),
-		sem:    make(chan struct{}, maxConcurrent),
-		ctx:    ctx,
-		dir:    dir,
-		logger: logger,
+		jobs:      make(map[string]*job),
+		active:    make(map[string]string),
+		sem:       make(chan struct{}, maxConcurrent),
+		maxQueued: maxQueued,
+		ctx:       ctx,
+		dir:       dir,
+		logger:    logger,
 	}
 }
 
 // enqueue registers a job for a site and starts it in the background.
 // When the site already has a queued or running job, no job is created and
-// the existing job id is returned instead (the caller answers 409).
-func (m *jobManager) enqueue(kind, site string, argv []string) (id, existing string) {
+// the existing job id is returned instead (the caller answers 409). When the
+// number of queued+running jobs has reached the cap, errQueueFull is returned
+// (the caller answers 429). Per-site exclusion takes precedence over the cap.
+func (m *jobManager) enqueue(kind, site string, argv []string) (id, existing string, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if cur, ok := m.active[site]; ok {
-		return "", cur
+		return "", cur, nil
+	}
+	// active holds exactly the queued+running jobs (one per site), so its
+	// length is the current queue depth.
+	if m.maxQueued > 0 && len(m.active) >= m.maxQueued {
+		return "", "", errQueueFull
 	}
 
 	id = newJobID()
@@ -110,7 +123,7 @@ func (m *jobManager) enqueue(kind, site string, argv []string) (id, existing str
 
 	m.logger.Info("job queued", "job_id", id, "kind", kind, "site", site, "command", j.display)
 	go m.run(j)
-	return id, ""
+	return id, "", nil
 }
 
 func (m *jobManager) run(j *job) {
@@ -236,6 +249,12 @@ func newJobID() string {
 // used by --from-git for private repositories.
 var userinfoRe = regexp.MustCompile(`://[^/@\s]+@`)
 
+// passwordLineRe masks a generated credential printed on a summary line
+// ("Password: <value>" / "Mot de passe: <value>"). site-create.sh echoes the
+// database password in its summary; the value is also written to the site's
+// .env, so masking it in job output loses nothing.
+var passwordLineRe = regexp.MustCompile(`(?i)(password|mot de passe):[ \t]*\S.*`)
+
 // redactArgv masks credentials embedded in URL arguments so job listings and
 // logs never expose deploy tokens.
 func redactArgv(argv []string) []string {
@@ -244,6 +263,16 @@ func redactArgv(argv []string) []string {
 		out[i] = userinfoRe.ReplaceAllString(a, "://***@")
 	}
 	return out
+}
+
+// redactOutput strips credentials from captured script output. Applied at the
+// single read boundary (ringBuffer.String) so it covers every script and every
+// surface — the /api/jobs/{id} output field and any log line — regardless of
+// what a script prints.
+func redactOutput(s string) string {
+	s = userinfoRe.ReplaceAllString(s, "://***@")
+	s = passwordLineRe.ReplaceAllString(s, "${1}: ***")
+	return s
 }
 
 // ringBuffer is an io.Writer keeping only the last max bytes written.
@@ -263,8 +292,10 @@ func (r *ringBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// String returns the buffered output with credentials redacted. The raw bytes
+// are only ever used to feed the running command; every read goes through here.
 func (r *ringBuffer) String() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return string(r.buf)
+	return redactOutput(string(r.buf))
 }

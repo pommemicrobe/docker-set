@@ -28,6 +28,7 @@ type config struct {
 	webhookSecret string
 	listenAddr    string
 	maxConcurrent int
+	maxQueued     int
 }
 
 func loadConfig() (*config, error) {
@@ -37,6 +38,7 @@ func loadConfig() (*config, error) {
 		webhookSecret: os.Getenv("WEBHOOK_SECRET"),
 		listenAddr:    os.Getenv("LISTEN_ADDR"),
 		maxConcurrent: 1,
+		maxQueued:     100,
 	}
 	if cfg.listenAddr == "" {
 		cfg.listenAddr = ":9000"
@@ -47,6 +49,13 @@ func loadConfig() (*config, error) {
 			return nil, fmt.Errorf("MAX_CONCURRENT_DEPLOYS must be a positive integer, got %q", v)
 		}
 		cfg.maxConcurrent = n
+	}
+	if v := os.Getenv("MAX_QUEUED_JOBS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return nil, fmt.Errorf("MAX_QUEUED_JOBS must be a positive integer, got %q", v)
+		}
+		cfg.maxQueued = n
 	}
 	if cfg.dir == "" {
 		return nil, errors.New("DOCKER_SET_DIR is required (absolute path to the docker-set repository)")
@@ -80,14 +89,17 @@ func main() {
 	jobCtx, cancelJobs := context.WithCancel(context.Background())
 	defer cancelJobs()
 
-	srv := newServer(cfg, newJobManager(jobCtx, cfg.dir, cfg.maxConcurrent, logger), logger)
+	srv := newServer(cfg, newJobManager(jobCtx, cfg.dir, cfg.maxConcurrent, cfg.maxQueued, logger), logger)
 
 	httpSrv := &http.Server{
 		Addr:              cfg.listenAddr,
 		Handler:           srv.routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		// Bounds the synchronous endpoints (list/logs/health/jobs); deploys are
+		// async (202 returned immediately) so they are unaffected.
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -98,7 +110,8 @@ func main() {
 	logger.Info("listening",
 		"addr", cfg.listenAddr,
 		"docker_set_dir", cfg.dir,
-		"max_concurrent_deploys", cfg.maxConcurrent)
+		"max_concurrent_deploys", cfg.maxConcurrent,
+		"max_queued_jobs", cfg.maxQueued)
 
 	select {
 	case err := <-errCh:
