@@ -1,0 +1,46 @@
+services:
+  docker-set-api:
+    build: ../../api
+    container_name: docker-set-api
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    env_file:
+      - .env
+    environment:
+      # Repository mounted at the SAME path as on the host: bind mounts
+      # issued by the scripts (docker compose in sites/<name>) resolve on
+      # the host daemon
+      DOCKER_SET_DIR: ${DOCKER_SET_ROOT}
+    ports:
+      # Localhost only — reach /api through SSH or a tunnel, never expose it
+      # on a public interface
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DOCKER_SET_ROOT}:${DOCKER_SET_ROOT}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+    # Optional: expose ONLY the GitHub webhook publicly through Traefik.
+    # Uncomment the labels and networks blocks (and the networks section at
+    # the bottom), set your hostname, then recreate the container.
+    # The PathPrefix keeps /api and /health unrouted; even so, /api stays
+    # behind the Bearer token — never weaken that assumption.
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.docker-set-api.rule=Host(`hooks.example.com`) && PathPrefix(`/hooks/`)"
+    #   - "traefik.http.routers.docker-set-api.entrypoints=websecure"
+    #   - "traefik.http.routers.docker-set-api.tls.certresolver=le"
+    #   - "traefik.http.services.docker-set-api.loadbalancer.server.port=9000"
+    # networks:
+    #   - web
+
+# networks:
+#   web:
+#     external: true
