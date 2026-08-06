@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>docker-set control plane</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-text">
+        <strong>docker-set</strong>
+        <span class="brand-sub">control plane</span>
+      </span>
+    </div>
+
+    <form id="token-form" class="token-bar" autocomplete="off">
+      <label class="sr-only" for="token-input">API token</label>
+      <input id="token-input" name="token" type="password" inputmode="text"
+             placeholder="API token" spellcheck="false" autocomplete="off">
+      <button id="connect-btn" type="submit">Connect</button>
+      <button id="disconnect-btn" type="button" hidden>Disconnect</button>
+      <span id="conn-status" class="pill pill-off" role="status" aria-live="polite">Disconnected</span>
+    </form>
+  </header>
+
+  <main class="content">
+    <!-- Shown until a valid token is connected -->
+    <section id="gate" class="gate card">
+      <h1>Connect to continue</h1>
+      <p>Enter the API token (from <code>config/api/.env</code>) in the bar above and press
+         Connect. The token is kept in this tab only and sent as a bearer on every request.</p>
+      <p id="gate-error" class="inline-error" hidden></p>
+    </section>
+
+    <!-- Dashboard, revealed once connected -->
+    <div id="dashboard" hidden>
+      <section class="card" aria-labelledby="sites-title">
+        <div class="card-head">
+          <h2 id="sites-title">Sites</h2>
+          <div class="card-head-actions">
+            <span id="sites-meta" class="muted" aria-live="polite"></span>
+            <button id="sites-refresh" type="button" class="ghost">Refresh</button>
+          </div>
+        </div>
+        <p id="sites-error" class="inline-error" hidden></p>
+        <div class="table-wrap">
+          <table class="sites-table">
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">URL</th>
+                <th scope="col">Template</th>
+                <th scope="col">Mode</th>
+                <th scope="col">Status</th>
+                <th scope="col" class="col-actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="sites-body">
+              <tr><td colspan="6" class="muted center">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="grid-2">
+        <section class="card" aria-labelledby="create-title">
+          <div class="card-head"><h2 id="create-title">Create site</h2></div>
+          <form id="create-form" class="form" autocomplete="off">
+            <div class="field">
+              <label for="c-name">Name</label>
+              <input id="c-name" name="name" type="text" required
+                     pattern="[a-z0-9][a-z0-9-]*" maxlength="64"
+                     placeholder="my-site" spellcheck="false">
+              <small class="hint">Lowercase letters, digits and hyphens.</small>
+            </div>
+            <div class="field">
+              <label for="c-url">URL</label>
+              <input id="c-url" name="url" type="text" required
+                     placeholder="example.com or localhost:3000" spellcheck="false">
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="c-template">Template</label>
+                <select id="c-template" name="template" required></select>
+              </div>
+              <div class="field">
+                <label for="c-mode">Mode</label>
+                <select id="c-mode" name="mode"></select>
+              </div>
+            </div>
+            <div class="field">
+              <label for="c-git">Git repository <span class="muted">(optional)</span></label>
+              <input id="c-git" name="from_git" type="text"
+                     placeholder="https://github.com/owner/repo.git" spellcheck="false">
+            </div>
+            <div class="field">
+              <label for="c-branch">Branch <span class="muted">(optional)</span></label>
+              <input id="c-branch" name="branch" type="text" placeholder="main" spellcheck="false">
+            </div>
+            <div class="checks">
+              <label class="check"><input id="c-withdb" type="checkbox" name="with_db"> Create MySQL database</label>
+              <label class="check"><input id="c-nossl" type="checkbox" name="no_ssl"> No SSL (HTTP, local dev)</label>
+            </div>
+            <p id="create-error" class="inline-error" hidden></p>
+            <div class="form-actions">
+              <button id="create-submit" type="submit">Create site</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card job-card" aria-labelledby="job-title">
+          <div class="card-head">
+            <h2 id="job-title">Job output</h2>
+            <span id="job-state" class="pill pill-idle">idle</span>
+          </div>
+          <p id="job-summary" class="muted">Job output from create and deploy actions appears here.</p>
+          <pre id="job-output" class="output" tabindex="0" aria-live="polite"></pre>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!-- Logs modal -->
+  <dialog id="logs-modal" class="modal">
+    <form method="dialog" class="modal-head">
+      <h2 id="logs-title">Logs</h2>
+      <div class="modal-head-actions">
+        <label class="sr-only" for="logs-tail">Lines</label>
+        <select id="logs-tail" name="tail">
+          <option value="100">100 lines</option>
+          <option value="200" selected>200 lines</option>
+          <option value="500">500 lines</option>
+          <option value="1000">1000 lines</option>
+        </select>
+        <button id="logs-refresh" type="button" class="ghost">Refresh</button>
+        <button type="submit" class="ghost">Close</button>
+      </div>
+    </form>
+    <pre id="logs-output" class="output" tabindex="0"></pre>
+  </dialog>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

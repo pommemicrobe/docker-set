@@ -10,6 +10,8 @@ WORKDIR /src
 
 COPY go.mod ./
 COPY *.go ./
+# Embedded admin UI (//go:embed static/*): must be present for the build
+COPY static/ ./static/
 
 # A non-gofmt'd or non-vet-clean tree never ships
 RUN test -z "$(gofmt -l .)" \

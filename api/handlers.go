@@ -48,7 +48,13 @@ func newServer(cfg *config, jobs *jobManager, logger *slog.Logger) *server {
 
 func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
+	// Admin SPA: unauthenticated (the assets are not secret) and registered
+	// before the API routes. The exact-match "/" and the /static/ subtree do
+	// not overlap /health, /api/* or /hooks/*, which stay as-is below.
+	mux.HandleFunc("GET /{$}", s.handleIndex)
+	mux.HandleFunc("GET /static/{path...}", s.handleStaticAsset)
 	mux.HandleFunc("GET /health", s.handleHealth)
+	mux.Handle("GET /api/meta", s.requireBearer(s.handleMeta))
 	mux.Handle("GET /api/sites", s.requireBearer(s.handleListSites))
 	mux.Handle("POST /api/sites", s.requireBearer(s.handleCreateSite))
 	mux.Handle("POST /api/sites/{name}/deploy", s.requireBearer(s.handleDeploySite))
