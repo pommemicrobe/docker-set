@@ -77,14 +77,30 @@ pull_site_source() {
     local branch
     branch=$(manifest_get "$site_dir" "source_branch" || true)
 
-    local -a pull_args=(pull --ff-only)
-    [[ -n "$branch" ]] && pull_args+=(origin "$branch")
-
     log_info "Pulling latest code${branch:+ (branch: $branch)}..."
-    if ! git_in_container "$site_dir/app" "${pull_args[@]}"; then
-        log_error "git pull failed"
-        log_info "The checkout in $site_dir/app may have diverged or contain local changes"
-        return 1
+
+    if [[ -n "$branch" ]]; then
+        # fetch + merge, not pull: `git fetch origin -- <ref>` honours the
+        # option/positional separator so a crafted branch (e.g.
+        # --upload-pack=...) can never be parsed by git as an option.
+        # `git pull` ignores `--` here, hence the split.
+        if ! git_in_container "$site_dir/app" fetch origin -- "$branch"; then
+            log_error "git fetch failed"
+            log_info "Check the branch name and remote access for $site_dir/app"
+            return 1
+        fi
+        if ! git_in_container "$site_dir/app" merge --ff-only FETCH_HEAD; then
+            log_error "git merge failed (the checkout may have diverged or contain local changes)"
+            return 1
+        fi
+    else
+        # No branch stored: pull the tracked branch. No user-controlled
+        # positional here, so plain pull is safe.
+        if ! git_in_container "$site_dir/app" pull --ff-only; then
+            log_error "git pull failed"
+            log_info "The checkout in $site_dir/app may have diverged or contain local changes"
+            return 1
+        fi
     fi
     log_ok "Code up to date"
 }

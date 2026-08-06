@@ -529,9 +529,11 @@ validate_compose "$NEW_SITE_DIR"
 if [[ -n "$FROM_GIT" ]]; then
     log_info "Cloning $FROM_GIT${GIT_BRANCH:+ (branch: $GIT_BRANCH)}..."
     mkdir -p "$NEW_SITE_DIR/app"
+    # `--` separates options from the positional URL/target so a crafted repo
+    # value can never be parsed by git as an option
     CLONE_ARGS=(clone)
     [[ -n "$GIT_BRANCH" ]] && CLONE_ARGS+=(--branch "$GIT_BRANCH")
-    CLONE_ARGS+=("$FROM_GIT" .)
+    CLONE_ARGS+=(-- "$FROM_GIT" .)
     if ! docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
         -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory \
         -e GIT_CONFIG_VALUE_0='*' \

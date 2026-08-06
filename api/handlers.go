@@ -491,7 +491,8 @@ func validGitURL(u string) bool {
 	if strings.HasPrefix(u, "-") { // never let a URL be read as a flag
 		return false
 	}
-	if strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "git://") || strings.HasPrefix(u, "ssh://") {
+	// git:// is intentionally excluded: it is unauthenticated cleartext
+	if strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "ssh://") {
 		return true
 	}
 	return scpLikeRe.MatchString(u)

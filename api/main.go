@@ -41,7 +41,9 @@ func loadConfig() (*config, error) {
 		maxQueued:     100,
 	}
 	if cfg.listenAddr == "" {
-		cfg.listenAddr = ":9000"
+		// Localhost only by default: the bare binary must never listen on all
+		// interfaces. Override with LISTEN_ADDR when fronted by a proxy.
+		cfg.listenAddr = "127.0.0.1:9000"
 	}
 	if v := os.Getenv("MAX_CONCURRENT_DEPLOYS"); v != "" {
 		n, err := strconv.Atoi(v)

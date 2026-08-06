@@ -6,6 +6,10 @@ services:
     init: true
     security_opt:
       - no-new-privileges:true
+    # The privileged work happens in the Docker daemon via the socket, not in
+    # this container, so it needs no Linux capabilities of its own
+    cap_drop:
+      - ALL
     env_file:
       - .env
     environment:
@@ -20,6 +24,13 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${DOCKER_SET_ROOT}:${DOCKER_SET_ROOT}
+      # Source and executable trees mounted read-only so a compromised API
+      # process cannot rewrite the scripts it later runs (as root, via the
+      # socket). sites/, backups/ and config/ stay writable via the mount above.
+      - ${DOCKER_SET_ROOT}/scripts:${DOCKER_SET_ROOT}/scripts:ro
+      - ${DOCKER_SET_ROOT}/lib:${DOCKER_SET_ROOT}/lib:ro
+      - ${DOCKER_SET_ROOT}/templates:${DOCKER_SET_ROOT}/templates:ro
+      - ${DOCKER_SET_ROOT}/api:${DOCKER_SET_ROOT}/api:ro
     logging:
       driver: "json-file"
       options:
