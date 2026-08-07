@@ -245,6 +245,12 @@ func newJobID() string {
 	return hex.EncodeToString(b[:])
 }
 
+// ansiSGRRe matches CSI SGR escape sequences (colours/styles). The management
+// scripts emit them via log_info/log_ok/etc.; left in, they render as garbage
+// (e.g. "[0;32m") in the UI job panel and in curl output. Kept narrow (CSI ...
+// 'm') so only colour codes are stripped, nothing else.
+var ansiSGRRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
 // userinfoRe matches embedded credentials in URLs (https://TOKEN@host/...),
 // used by --from-git for private repositories.
 var userinfoRe = regexp.MustCompile(`://[^/@\s]+@`)
@@ -265,11 +271,14 @@ func redactArgv(argv []string) []string {
 	return out
 }
 
-// redactOutput strips credentials from captured script output. Applied at the
-// single read boundary (ringBuffer.String) so it covers every script and every
-// surface — the /api/jobs/{id} output field and any log line — regardless of
-// what a script prints.
+// redactOutput cleans captured script output. Applied at the single read
+// boundary (ringBuffer.String) so it covers every script and every surface —
+// the /api/jobs/{id} output field and any log line — regardless of what a
+// script prints. ANSI colours are stripped first so a secret split by a colour
+// reset is reassembled into plain text before the credential regexes run,
+// keeping masking robust either way.
 func redactOutput(s string) string {
+	s = ansiSGRRe.ReplaceAllString(s, "")
 	s = userinfoRe.ReplaceAllString(s, "://***@")
 	s = passwordLineRe.ReplaceAllString(s, "${1}: ***")
 	return s

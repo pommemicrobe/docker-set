@@ -454,7 +454,20 @@ curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:9000/api/sites/m
 curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:9000/api/jobs/<job_id>
 ```
 
-Create/deploy run **asynchronously** as jobs (global concurrency `MAX_CONCURRENT_DEPLOYS`, default 1; one job per site — a second returns `409` with the existing `job_id`; when queued+running jobs reach `MAX_QUEUED_JOBS`, default 100, new ones get `429`). Poll `/api/jobs/{id}` for state (`queued`/`running`/`success`/`failed`) and output.
+Create/deploy run **asynchronously** as jobs (global concurrency `MAX_CONCURRENT_DEPLOYS`, default 1; one job per site — a second returns `409` with the existing `job_id`; when queued+running jobs reach `MAX_QUEUED_JOBS`, default 100, new ones get `429`). Poll `/api/jobs/{id}` for state (`queued`/`running`/`success`/`failed`) and output. Job output is redacted (embedded URL credentials and printed passwords masked) and stripped of ANSI colour codes, so it is clean over curl and in the UI.
+
+### Web UI
+
+The same binary serves a minimal admin SPA — no extra container, no build step (vanilla JS embedded via `//go:embed`). Browse to **http://127.0.0.1:9000/** (localhost only; reach a remote host over the same SSH tunnel as `/api`).
+
+The page and its assets (`/`, `/static/*`) load **unauthenticated** — they hold no secrets. Paste the `API_TOKEN` from `config/api/.env` into the top bar and Connect; it is kept in `sessionStorage` (this browser tab only) and sent as `Authorization: Bearer` on every `/api/*` call. Any `401` clears it and drops back to the connect gate.
+
+From there you can list sites (auto-refreshing status), create one (the form is populated from `GET /api/meta` — templates, frameworks, modes, runtimes), deploy, and read container logs; create/deploy stream live job output into a panel until `success`/`failed`. Every asset is served under a strict CSP (`default-src 'self'; base-uri 'none'; form-action 'self'`) with `X-Content-Type-Options: nosniff` — all JS/CSS is same-origin, no inline scripts.
+
+```bash
+# Read the token to paste into the page, then open http://127.0.0.1:9000/
+grep '^API_TOKEN=' config/api/.env | cut -d= -f2-
+```
 
 ### GitHub Webhook (auto-deploy on push)
 

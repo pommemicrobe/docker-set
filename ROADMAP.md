@@ -52,9 +52,15 @@ logique.
 
 ## Phase 3 — Interface web
 
-SPA minimale servie par le control plane : liste des sites avec état,
-formulaire de création, bouton deploy, streaming des logs. L'observabilité
-reste sur étagère (Dozzle, Uptime Kuma) — pas redéveloppée ici.
+- [x] SPA minimale servie par le control plane : liste des sites avec état
+  (auto-refresh), formulaire de création (alimenté par `GET /api/meta`), bouton
+  deploy, streaming des logs et de la sortie des jobs. JS vanilla embarqué dans
+  le binaire Go (`//go:embed`, aucune étape de build, aucun framework/CDN) ;
+  assets statiques non authentifiés, token en `sessionStorage`, CSP stricte. La
+  sortie des jobs est désormais nettoyée des codes couleur ANSI (rendu propre en
+  curl comme dans l'UI).
+
+L'observabilité reste sur étagère (Dozzle, Uptime Kuma) — pas redéveloppée ici.
 
 ## Gestion des sites
 

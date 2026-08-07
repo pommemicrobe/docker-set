@@ -852,6 +852,87 @@ else
 fi
 
 # =============================================================================
+# TEST: Web UI (Phase 3) — embedded SPA served by the API binary
+# =============================================================================
+echo ""
+echo -e "${YELLOW}Web UI (embedded SPA)${NC}"
+
+# Backend + asset files present
+for f in static.go meta.go static/index.html static/app.js static/style.css; do
+    if [[ -f "$api_dir/$f" ]]; then
+        pass "api/$f exists"
+    else
+        fail "api/$f missing"
+    fi
+done
+
+# Assets are embedded into the binary (single-binary invariant)
+if grep -qF '//go:embed static/*' "$api_dir/static.go" 2>/dev/null; then
+    pass "static.go embeds the assets (//go:embed static/*)"
+else
+    fail "static.go missing //go:embed static/*"
+fi
+
+# A strict CSP is declared for the UI responses
+if grep -qF "default-src 'self'" "$api_dir/static.go" 2>/dev/null; then
+    pass "static.go declares the Content-Security-Policy constant"
+else
+    fail "static.go missing CSP constant (default-src 'self')"
+fi
+
+# Dockerfile copies the assets so the embed resolves at build time
+if grep -qF 'COPY static/' "$api_dir/Dockerfile" 2>/dev/null; then
+    pass "Dockerfile copies static/ into the build context"
+else
+    fail "Dockerfile missing COPY static/"
+fi
+
+# routes(): SPA index + assets are unauthenticated; /api/meta is Bearer-gated
+routes_file="$api_dir/handlers.go"
+
+index_line=$(grep -F 'GET /{$}' "$routes_file" 2>/dev/null || true)
+if [[ -n "$index_line" ]] && grep -q 'handleIndex' <<<"$index_line" \
+        && ! grep -qF 'requireBearer' <<<"$index_line"; then
+    pass 'routes() serves GET /{$} (SPA index) unauthenticated'
+else
+    fail 'routes() missing unauthenticated GET /{$} -> handleIndex'
+fi
+
+static_line=$(grep -F 'GET /static/{path...}' "$routes_file" 2>/dev/null || true)
+if [[ -n "$static_line" ]] && ! grep -qF 'requireBearer' <<<"$static_line"; then
+    pass 'routes() serves GET /static/{path...} unauthenticated'
+else
+    fail 'routes() missing unauthenticated GET /static/{path...}'
+fi
+
+meta_line=$(grep -F 'GET /api/meta' "$routes_file" 2>/dev/null || true)
+if [[ -n "$meta_line" ]] && grep -qF 'requireBearer' <<<"$meta_line"; then
+    pass 'routes() gates GET /api/meta behind requireBearer'
+else
+    fail 'routes() missing bearer-gated GET /api/meta'
+fi
+
+# Token flow lives in sessionStorage (this tab only)
+if grep -q 'sessionStorage' "$api_dir/static/app.js" 2>/dev/null; then
+    pass "app.js keeps the API token in sessionStorage"
+else
+    fail "app.js does not reference sessionStorage"
+fi
+
+# CSP-clean HTML: no inline event handlers, no inline <script> blocks
+ui_html="$api_dir/static/index.html"
+if grep -qiE '<[^>]+ on[a-z]+=' "$ui_html" 2>/dev/null; then
+    fail "index.html has inline event handler(s) (e.g. onclick=) — CSP-unsafe"
+else
+    pass "index.html has no inline event handlers"
+fi
+if grep -oE '<script[^>]*>' "$ui_html" 2>/dev/null | grep -qv 'src='; then
+    fail "index.html has an inline <script> block (CSP forbids inline JS)"
+else
+    pass "index.html has no inline <script> (all scripts external)"
+fi
+
+# =============================================================================
 # SUMMARY
 # =============================================================================
 echo ""
